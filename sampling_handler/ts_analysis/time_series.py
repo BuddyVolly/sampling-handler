@@ -340,7 +340,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
     except ee.EEException:
         pass
 
-    if return_code != 0:
+    if any(return_code) != 0:
         logger.warning(
             "Not fully processed. Will retry at a higher aggregation level."
         )
@@ -422,7 +422,7 @@ def _parallel_extract(input_grid, dggrid_res, config_file):
     except ee.EEException:
         pass
 
-    if return_code != 0:
+    if any(return_code) != 0:
         logger.warning(
             "Not fully processed. Will retry at a higher aggregation level."
         )
@@ -577,7 +577,8 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
     except Exception as e:
         logger.debug(str(e))
         # add identifier here
-        raise e
+        #raise e
+        return 1
 
     return 0
 
