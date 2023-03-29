@@ -6,6 +6,15 @@ The nox run are build in isolated environment that will be stored in .nox. to fo
 import nox
 
 
+@nox.session(reuse_venv=True, name="ee-test-sepal")
+def ee_test_sepal(session):
+    """Run all the test using the environment varialbe of the running machine."""
+    session.install("git+https://github.com/openforis/earthengine-api.git@v0.1.343#egg=earthengine-api&subdirectory=python")
+    session.install(".[test]")
+    test_files = session.posargs or ["tests"]
+    session.run("pytest", "--color=yes", "--cov", "--cov-report=html", *test_files)
+
+
 @nox.session(reuse_venv=True)
 def lint(session):
     """Apply the pre-commits."""
