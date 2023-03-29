@@ -17,7 +17,34 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 requires-python = ">=3.6.9"
-dependencies = []
+
+dependencies = [
+    # web
+    "requests",
+    "retrying",
+    # geospatial libs
+    "earthengine-api",
+    #"ee_preproc @ git+https://github.com/BuddyVolly/ee-preproc",
+    "xarray",
+    "geopandas",
+    "dask-geopandas",
+    "geemap",
+    # data science and ML
+    "numpy==1.22",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "scikit-optimize",
+    "imbalanced-learn",
+    "matplotlib",
+    "seaborn",
+    "tensorflow>=2.7.0",
+    "protobuf==3.19.6",
+    "godale",
+    # time-series
+    "nrt",
+    "bfast @ git+https://github.com/12rambau/bfast"
+]
 
 [[project.authors]]
 name = "Andreas Vollrath"
