@@ -1,19 +1,20 @@
-"""TO DO DOC."""
+""" TO DO DOC"""
 
-import logging
-import uuid
 from pathlib import Path
+import uuid
+import logging
 
 import ee
 import geemap
-import geopandas as gpd
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 from matplotlib import pyplot as plt
-from shapely.geometry import Point, box
+from shapely.geometry import box, Point
 
 from ..misc.py_helpers import run_command
 from ..misc.settings import setup_logger
+
 
 # Create a logger object
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ setup_logger(logger)
 
 
 def random_point(geometry):
-    """TO DO DOC."""
+    """ TO DO DOC"""
     bounds = geometry.bounds
     while True:
 
@@ -34,7 +35,7 @@ def random_point(geometry):
 
 
 def squared_grid(aoi, spacing, crs="ESRI:54017", sampling_strategy="systematic"):
-    """TO DO DOC."""
+    """ TO DO DOC"""
     logger.info("Preparing AOI.")
     if isinstance(aoi, ee.FeatureCollection):
         logger.debug("Turning ee FC into a GeoDataFrame")
@@ -118,7 +119,8 @@ def hexagonal_grid(
     projection="ISEA3H",
     grid_only=False
 ):
-    """TO DO DOC."""
+    """ TO DO DOC"""
+
     logger.info("Preparing AOI.")
     # in case we have a EE FC
     if isinstance(aoi, ee.FeatureCollection):
@@ -208,7 +210,8 @@ def hexagonal_grid(
 
 
 def plot_samples(aoi, sample_points, grid_cells=None):
-    """TO DO DOC."""
+    """ TO DO DOC"""
+
     fig, ax = plt.subplots(1, 1, figsize=(25, 25))
 
     if isinstance(aoi, ee.FeatureCollection):

@@ -5,7 +5,6 @@ The nox run are build in isolated environment that will be stored in .nox. to fo
 
 import nox
 
-
 @nox.session(reuse_venv=True, name="ee-test-sepal")
 def ee_test_sepal(session):
     """Run all the test using the environment varialbe of the running machine."""

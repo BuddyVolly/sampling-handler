@@ -5,7 +5,7 @@ import ee
 import geemap
 import geopandas as gpd
 
-from ..misc.py_helpers import split_dataframe
+from ..misc.ts_helpers import split_dataframe
 from ..misc.settings import setup_logger
 
 # Create a logger object
