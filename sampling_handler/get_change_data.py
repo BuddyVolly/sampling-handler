@@ -13,12 +13,12 @@ from .ee.ccdc import run_ccdc
 from .ee.landtrendr import run_landtrendr
 from .ee.global_products import sample_global_products_cell
 
-from .ts_analysis.cusum import run_cusum_deforest
-from .ts_analysis.bfast_wrapper import run_bfast_monitor
-from .ts_analysis.bootstrap_slope import run_bs_slope
-from .ts_analysis.timescan import run_timescan_metrics
-from .ts_analysis.jrc_nrt import run_jrc_nrt
-from .ts_analysis.helpers import subset_ts, remove_outliers, smooth_ts
+from .time_series.cusum import run_cusum_deforest
+from .time_series.bfast_wrapper import run_bfast_monitor
+from .time_series.bootstrap_slope import run_bs_slope
+from .time_series.timescan import run_timescan_metrics
+from .time_series.jrc_nrt import run_jrc_nrt
+from .time_series.helpers import subset_ts, remove_outliers, smooth_ts
 
 
 def upload_tmp_asset(asset_root, fc, asset_name, create_folder=True):

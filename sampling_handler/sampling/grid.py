@@ -115,16 +115,21 @@ def hexagonal_grid(
     aoi,
     resolution,
     sampling_strategy="systematic",
-    outcrs="ESRI:54017",
+    centroid_crs='ESRI:54017',
+    outcrs='EPSG:4326' ,
     projection="ISEA3H",
-    grid_only=False
+    grid_only=False,
+
 ):
     """ TO DO DOC"""
 
     logger.info("Preparing AOI.")
     # in case we have a EE FC
     if isinstance(aoi, ee.FeatureCollection):
-        logger.debug("Turning ee FC into a GeoDataFrame")
+        logger.debug(
+            "Turning the Earth Engine FeatureCollection of the AOI "
+            "into a geopandas GeoDataFrame"
+        )
         aoi = geemap.ee_to_geopandas(aoi).set_crs("epsg:4326", inplace=True)
 
     if not aoi.crs:
@@ -147,7 +152,7 @@ def hexagonal_grid(
     aoi.to_file(tmp_extent)
     tmp_outfile = tmp_folder.joinpath(f"tmp_file_{uuid_str}")
 
-    print("Creating hexagonal grid...")
+    logger.info("Creating hexagonal grid...")
     # Create a list of lines
     lines = [
         "dggrid_operation GENERATE_GRID",
@@ -180,8 +185,9 @@ def hexagonal_grid(
     tmp_outfile.with_suffix(".geojson").unlink()
 
     if sampling_strategy == "systematic":
+        logger.info("Creating centroids based on Behrmann's equal area projection...")
         # centroid calculation shall be done on projected CRS
-        gdf = gdf.to_crs("ESRI:54017")
+        gdf = gdf.to_crs(centroid_crs)
         # get centroids
         gdf["sample_points"] = gdf.geometry.centroid
 
@@ -226,3 +232,14 @@ def plot_samples(aoi, sample_points, grid_cells=None):
         grid_cells.plot(ax=ax, facecolor="none", edgecolor="black", lw=0.1)
 
     sample_points.plot(ax=ax, facecolor="red", markersize=0.5)
+
+
+## CAR case
+#aoi = gpd.GeoDataFrame.from_features(aoi.getInfo())
+#geom = aoi.geometry.explode().values[2]
+#data = [['idx', geom]]
+##
+### Create the pandas DataFrame
+#df = pd.DataFrame(data, columns=['idx', 'geometry'])
+#gdf = gpd.GeoDataFrame(df, geometry='geometry')
+#gdf.plot()

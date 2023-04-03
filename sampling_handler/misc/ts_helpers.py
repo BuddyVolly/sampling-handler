@@ -1,59 +1,17 @@
 from datetime import datetime as dt
-from pathlib import Path
+import logging
 
-import ee
-import geemap
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 
+from ..misc.settings import setup_logger
 
-def split_dataframe(df, chunk_size=25000):
-    """Split a pandas DataFrame into different chunks
-
-    """
-
-    chunks = []
-    num_chunks = len(df) // chunk_size + 1
-    for i in range(num_chunks):
-        chunks.append(df[i * chunk_size:(i + 1) * chunk_size])
-    return chunks
-
-
-def save_gdf_locally(gdf, outdir=None, ceo_csv=True, gpkg=True):
-
-    # if it is already a feature collection
-    if isinstance(gdf, ee.FeatureCollection):
-        gdf = geemap.ee_to_geopandas(gdf)
-
-    if not outdir:
-        outdir = Path.home().joinpath("module_results/e_sbae")
-
-    if not isinstance(outdir, Path):
-        outdir = Path(outdir)
-
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    logging.info(f" Saving outputs to {outdir}")
-    gdf["LON"] = gdf["geometry"].x
-    gdf["LAT"] = gdf["geometry"].y
-
-    # sort columns for CEO output
-    gdf["PLOTID"] = gdf["point_id"]
-    cols = gdf.columns.tolist()
-    cols = [e for e in cols if e not in ("LON", "LAT", "PLOTID")]
-    new_cols = ["PLOTID", "LAT", "LON"] + cols
-    gdf = gdf[new_cols]
-
-    if ceo_csv:
-        gdf[["PLOTID", "LAT", "LON"]].to_csv(
-            outdir.joinpath("01_sbae_points.csv"), index=False
-        )
-
-    if gpkg:
-        gdf.to_file(outdir.joinpath("01_sbae_points.gpkg"), driver="GPKG")
+# Create a logger object
+logger = logging.getLogger(__name__)
+setup_logger(logger)
 
 
 def subset_ts(row, start_monitor, bands):
