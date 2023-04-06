@@ -329,7 +329,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
     )
     # run in parallel
     if args_to_process:
-        return_code = _run_in_threads(
+        return_code = run_in_threads(
             extract_time_series, args_to_process, config_dict
         )
     else:
@@ -411,7 +411,7 @@ def _parallel_extract(input_grid, dggrid_res, config_file):
 
     # run in parallel
     if args_to_process:
-        return_code = _run_in_threads(
+        return_code = run_in_threads(
             extract_time_series, args_to_process, config_dict
         )
     else:

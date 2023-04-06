@@ -1,28 +1,20 @@
 import numpy as np
 from scipy import stats
 import pandas as pd
-from godale import Executor
+from ..misc.py_helpers import run_in_threads
 
 
-def calc_timescan_metrics(args):
+def calc_timescan_metrics(ts, point_id, outlier_removal, z_threshhold):
 
-    ts, point_id, outlier_removal, z_threshhold = args
-    if ts:
-        if outlier_removal:
-            z_score = np.abs(stats.zscore(np.array(ts)))
-            ts_out = np.ma.MaskedArray(ts, mask=z_score > z_threshhold)
-        else:
-            ts_out = ts
 
-        return (
-            np.nanmean(ts_out),
-            np.nanstd(ts_out),
-            np.nanmin(ts_out),
-            np.nanmax(ts_out),
-            point_id,
-        )
+    if outlier_removal:
+        z_score = np.abs(stats.zscore(np.array(ts)))
+        ts_out = np.ma.MaskedArray(ts, mask=z_score > z_threshhold)
     else:
-        return 0, 0, 0, 0, point_id
+        ts_out = ts
+
+    return np.nanmean(ts_out), np.nanstd(ts_out), np.nanmin(ts_out), np.nanmax(ts_out), point_id
+
 
 
 def run_timescan_metrics(df, config_dict):
@@ -43,17 +35,11 @@ def run_timescan_metrics(df, config_dict):
         args_list.append(
             [row.ts_mon[ts_band], row[point_id_name], outlier_removal, z_threshhold]
         )
-        # d[i] = calc_timescan_metrics(args_list[i])
 
-    executor = Executor(executor="concurrent_threads", max_workers=16)
-    for i, task in enumerate(
-        executor.as_completed(func=calc_timescan_metrics, iterable=args_list)
-    ):
-        try:
-            d[i] = list(task.result())
-        except ValueError:
-            print("timescan task failed")
-
+    # parallel execution
+    results = run_in_threads(calc_timescan_metrics, args_list, config_dict)
+    # turn result into dataframe
+    d = {i: result for i, result in enumerate(results)}
     tscan_df = pd.DataFrame.from_dict(d, orient="index")
     tscan_df.columns = ["ts_mean", "ts_sd", "ts_min", "ts_max", point_id_name]
     return pd.merge(df, tscan_df, on=point_id_name)

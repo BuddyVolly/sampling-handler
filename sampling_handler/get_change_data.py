@@ -17,7 +17,7 @@ from .time_series.cusum import run_cusum_deforest
 from .time_series.bfast_wrapper import run_bfast_monitor
 from .time_series.bootstrap_slope import run_bs_slope
 from .time_series.timescan import run_timescan_metrics
-from .time_series.jrc_nrt import run_jrc_nrt
+from .time_series.jrc_change import run_jrc_nrt
 from .time_series.helpers import subset_ts, remove_outliers, smooth_ts
 
 

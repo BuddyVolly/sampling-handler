@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime as dt
 
 from bfast import BFASTMonitor
-from godale import Executor
+from ..misc.py_helpers import run_in_threads
+from ..misc.ts_helpers import subset_ts
 
 # default bFast parameters
 defaults = {
@@ -17,7 +18,7 @@ defaults = {
 }
 
 
-def bfast_monitor(args):
+def bfast_monitor(data, dates, point_id, bfast_params):
     """
     Wrapper for BFAST's python implementation
 
@@ -43,9 +44,6 @@ def bfast_monitor(args):
     bfast_means : float32
         Change confidence of detected break
     """
-
-    # unpack args
-    data, dates, point_id, bfast_params = args
 
     # initialize model
     params = bfast_params.copy()
@@ -94,22 +92,29 @@ def run_bfast_monitor(df, config_dict):
 
     bfast_params = config_dict["bfast_params"]
     ts_band = config_dict["ts_params"]["ts_band"]
+    bands = config_dict['ts_params']['bands']
     point_id_name = config_dict["ts_params"]["point_id"]
+
+    df[['dates_mon', 'ts_mon', 'mon_images']] = df.apply(
+        lambda row: ts_helpers.subset_ts(
+            row,
+            config_dict['ts_params']['start_monitor'],
+            config_dict['ts_params']['end_monitor'],
+            bands
+        ),
+        axis=1,
+        result_type='expand',
+    )
 
     args_list, d = [], {}
     for i, row in df.iterrows():
         args_list.append([row.ts[ts_band], row.dates, row[point_id_name], bfast_params])
-        # d[i] = bfast_monitor(args_list[i])
 
-    executor = Executor(executor="concurrent_threads", max_workers=16)
-    for i, task in enumerate(
-        executor.as_completed(func=bfast_monitor, iterable=args_list)
-    ):
-        try:
-            d[i] = list(task.result())
-        except ValueError:
-            print("bfast task failed")
+    # parallel execution
+    results = run_in_threads(bfast_monitor, args_list, config_dict)
 
+    # turn result into dataframe
+    d = {i: result for i, result in enumerate(results)}
     bfast_df = pd.DataFrame.from_dict(d, orient="index")
     bfast_df.columns = [
         "bfast_change_date",
@@ -117,4 +122,7 @@ def run_bfast_monitor(df, config_dict):
         "bfast_means",
         point_id_name,
     ]
+
+    # and merge
+    df.drop(['dates_mon', 'ts_mon', 'mon_images'], axis=1, inplace=True)
     return pd.merge(df, bfast_df, on=point_id_name)

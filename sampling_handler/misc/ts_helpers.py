@@ -6,6 +6,8 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
+import geopandas as gpd
+import dask_geopandas as dgpd
 
 from ..misc.settings import setup_logger
 
@@ -14,11 +16,17 @@ logger = logging.getLogger(__name__)
 setup_logger(logger)
 
 
-def subset_ts(row, start_monitor, bands):
+def subset_ts(row, start, end, bands):
     """Helper function to extract only monitoring period"""
 
+    if isinstance(start, str):
+        start = dt.strptime(start, "%Y-%m-%d")
+
+    if isinstance(end, str):
+        end = dt.strptime(end, "%Y-%m-%d")
+
     # create index for monitoring period
-    idx = row.dates > dt.strptime(start_monitor, "%Y-%m-%d")
+    idx = (row.dates > start) & (row.dates < end)
 
     # subset dates
     dates = row.dates[idx]
@@ -63,9 +71,11 @@ def outlier_removal(dates, ts, bands, ts_band):
     ts[ts_band] = out_ts
 
     # create dataframe
-    tmp_df = pd.DataFrame(data=ts, index=pd.DatetimeIndex(dates), columns=bands)
+    tmp_df = pd.DataFrame(
+        data=ts, index=pd.DatetimeIndex(dates), columns=bands
+    )
 
-    # drop nans, aplied to all columns
+    # drop nans, applied to all columns
     tmp_df = tmp_df.dropna()
 
     # aggreagte band values to dict to send back to main df
@@ -78,10 +88,10 @@ def outlier_removal(dates, ts, bands, ts_band):
 
 def remove_outliers(df, bands, ts_band):
 
-    df[["dates", "ts"]] = df.apply(
+    df[['dates', 'ts']] = df.apply(
         lambda x: outlier_removal(x.dates, x.ts, bands, ts_band),
         axis=1,
-        result_type="expand",
+        result_type="expand"
     )
     return df
 

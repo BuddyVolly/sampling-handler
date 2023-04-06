@@ -9,6 +9,9 @@ from pathlib import Path
 
 import ee
 import geemap
+import geojson
+import pandas as pd
+import geopandas as gpd
 
 from .settings import setup_logger
 
@@ -63,29 +66,26 @@ def timer(start, custom_msg=None):
         logger.info(f"Time elapsed: {timedelta(seconds=elapsed)}")
 
 
-def _run_in_threads(func, arg_list, config_dict):
+def run_in_parallel(func, arg_list, workers, parallelization='threads'):
 
-    max_workers = config_dict["workers"]
-    with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
+    # get max workers and
+    if parallelization == 'threads':
+        executor = concurrent.futures.ThreadPoolExecutor(workers)
+    elif parallelization == 'processes':
+        executor = concurrent.futures.ProcessPoolExecutor(workers)
+    else:
+        raise ValueError('Parallelization type not supported or unknown.')
 
-        # submit tasks
-        futures = [executor.submit(func, *args) for args in arg_list]
+    # submit tasks
+    futures = [executor.submit(func, *args) for args in arg_list]
 
-        # gather results
-        try:
-            results = [
-                future.result()
-                for future in concurrent.futures.as_completed(futures)
-            ]
-
-            if None not in results:
-                return_code = 0
-            else:
-                return_code = 1
-        except Exception as e:
-            return_code = 1
-
-    return return_code
+    # gather results
+    results = [
+        future.result()
+        for future in concurrent.futures.as_completed(futures)
+    ]
+    executor.shutdown()
+    return results
 
 
 def save_gdf_locally(gdf, outdir=None, ceo_csv=True, gpkg=True):
@@ -131,3 +131,76 @@ def split_dataframe(df, chunk_size=25000):
     for i in range(num_chunks):
         chunks.append(df[i * chunk_size:(i + 1) * chunk_size])
     return chunks
+
+
+def read_any_aoi_to_single_row_gdf(aoi, outcrs='epsg:4326'):
+    """
+
+    :param aoi:
+    :return:
+    """
+
+    if isinstance(aoi, ee.FeatureCollection):
+        logger.debug("Turning ee FC into a GeoDataFrame")
+        aoi = geemap.ee_to_geopandas(aoi).set_crs("epsg:4326", inplace=True)
+
+    if isinstance(aoi, (str, Path)):
+        aoi = gpd.read_file(aoi)
+
+    if isinstance(aoi, gpd.geodataframe.GeoDataFrame):
+        aoi = aoi
+    else:
+        raise(
+            'Area of Interest does not have the right format. '
+            'Shall be either a path to a file, a geopandas GeoDataFrame '
+            'or a Earth Engine Feature Collection'
+        )
+
+    if not aoi.crs:
+        crs_original = input(
+            "Your AOI does not have a coordinate reference system (CRS). "
+            "Please provide the CRS of the AOI (e.g. epsg:4326): "
+        )
+        aoi.set_crs(crs_original, inplace=True)
+
+    # ensure single geometry
+    logger.debug("Dissolve geometry and reproject to crs.")
+    geom = gpd.GeoDataFrame(aoi.geometry.explode('index_parts=True'))
+    geom.drop(geom[geom['geometry'].type != 'Polygon'].index, inplace=True)
+
+    return gpd.GeoDataFrame(
+        index=[0],
+        crs=outcrs,
+        geometry=[geom.to_crs(outcrs).unary_union]
+    )
+
+
+def gdf_to_geojson(gdf, outfile, convert_dates=False):
+
+    if convert_dates:
+        gdf['dates'] = gdf.dates.apply(
+            lambda row: [pd.to_datetime(ts).strftime('%Y%m%d') for ts in
+                         list(row.values)])
+
+    # this is how we dump
+    with open(outfile, 'w') as outfile:
+        geojson.dump(gdf.to_json(), outfile)
+
+
+def geojson_to_gdf(infile, convert_dates=False):
+
+    # this is how we load
+    with open(infile, 'r') as outfile:
+        gdf = gpd.GeoDataFrame.from_features(
+            geojson.loads(geojson.load(outfile))
+        )
+
+    # convert plain list of dates into a pandas datetime index
+    if convert_dates:
+        gdf['dates'] = gdf.dates.apply(
+            lambda dates: pd.DatetimeIndex(
+                [pd.to_datetime(date, format='%Y%m%d') for date in dates]
+            )
+        )
+
+    return gdf
