@@ -1,99 +1,292 @@
 import math
+import json
+import logging
+import itertools
+from pathlib import Path
 
 import ee
 import numpy as np
 import pandas as pd
-from scipy import stats
+import geemap
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import seaborn as sns
+from scipy import stats
 from retrying import retry
+
+from ..esbae import Esbae
+from ..misc import py_helpers
+from ..misc.settings import setup_logger
+
+# Create a logger object
+logger = logging.getLogger(__name__)
+setup_logger(logger)
+
+
+class SampleSize(Esbae):
+
+    def __init__(self, project_name, aoi, start, end, tree_cover, mmu):
+        # ------------------------------------------
+        # 1 Get Generic class attributes
+        super().__init__(project_name, aoi)
+
+        # we need to get the AOI right with the CRS
+        self.aoi = py_helpers.read_any_aoi_to_single_row_gdf(
+            self.aoi, incrs=self.aoi_crs
+        )
+
+        self.start = start
+        self.end = end
+        self.tree_cover = tree_cover
+        self.mmu = mmu
+
+        self.out_dir = str(Path(self.project_dir).joinpath('01_Sample_Size'))
+        Path(self.out_dir).mkdir(parents=True, exist_ok=True)
+
+        # placeholders for area statistics
+        self.area_dict = None
+        self.loss_df = None
+        self.fig_ann_deforest = None
+
+        # target error and confidence interval for calculation
+        self.target_error = self.config_dict['stats_params']['target_error']
+        self.confidence = self.config_dict['stats_params']['confidence']
+        self.samples_min = 10000
+        self.samples_max = 500000
+        self.samples_step = 49
+
+        # outputs from sample size calculation
+        self.calculated = None
+        self.selected = None
+        self.fig_cochran = None
+
+        # inputs for simulation
+        self.spacings = self.config_dict['stats_params']['spacings']
+        self.scales = self.config_dict['stats_params']['scales']
+        self.runs = self.config_dict['stats_params']['runs']
+        self.random_seed = self.config_dict['stats_params']['random_seed']
+
+        # outputs for simulation
+        self.simulated = None
+        self.fig_simulation = None
+
+    def gfc_areas(self, save_figure=True):
+
+        # from hectare to pixel size
+        self.area_dict, self.loss_df, self.fig_ann_deforest = get_area_statistics(
+            self.aoi, self.start, self.end, self.tree_cover, self.mmu
+        )
+
+        if save_figure:
+            self.fig_ann_deforest.savefig(
+                Path(self.out_dir).joinpath('annual_deforestation.png')
+            )
+
+        self.config_dict['stats_params']['outdir'] = str(self.out_dir)
+        self.config_dict['stats_params']['start'] = self.start
+        self.config_dict['stats_params']['end'] = self.end
+        self.config_dict['stats_params']['tree_cover'] = self.tree_cover
+        self.config_dict['stats_params']['mmu'] = self.mmu
+        self.config_dict['stats_params']['area_dict'] = self.area_dict
+        with open(self.config_file, 'w') as f:
+            json.dump(self.config_dict, f)
+
+    def minimum_sample_size(self, save_figure=True):
+
+        with open(self.config_file, 'w') as f:
+            json.dump(self.config_dict, f)
+
+        self.calculated, self.selected = determine_minimum_sample_size(
+            self.area_dict, self.target_error/100, self.confidence/100,
+            self.samples_min, self.samples_max, self.samples_step
+        )
+
+        self.fig_cochran = display_minimum_sample_size(
+            self.calculated, self.selected)
+
+        if save_figure:
+            self.fig_cochran.savefig(
+                Path(self.out_dir).joinpath('cochran_sample_size.png')
+            )
+
+        self.config_dict['stats_params']['optimal_spacing'] = int(
+            self.selected['Grid Spacing'].values[0]*1000
+        )
+
+        # update conf
+        self.config_dict['stats_params']['target_error'] = self.target_error
+        self.config_dict['stats_params']['confidence'] = self.confidence
+        with open(self.config_file, 'w') as f:
+            json.dump(self.config_dict, f)
+
+    def simulated_sampling_error(self, save_figure=True):
+
+        # we need to get the AOI right with the CRS
+        aoi = py_helpers.read_any_aoi_to_single_row_gdf(self.aoi, incrs=self.aoi_crs)
+
+        self.simulated = gfc_sampling_simulation(
+            aoi, self.start, self.end, self.area_dict, self.tree_cover, self.mmu,
+            self.runs, self.spacings, self.random_seed, self.scales
+        )
+
+        self.fig_simulation = display_simulation(
+            self.simulated, self.area_dict, self.calculated
+        )
+        if save_figure:
+            self.fig_simulation.savefig(
+                (Path(self.out_dir).joinpath('simulated_sample_size.png'))
+            )
+
+        self.config_dict['stats_params']['spacings'] = self.spacings
+        self.config_dict['stats_params']['scales'] = self.scales
+        self.config_dict['stats_params']['random_seed'] = self.random_seed
+        self.config_dict['stats_params']['runs'] = self.runs
+        with open(self.config_file, 'w') as f:
+            json.dump(self.config_dict, f)
+
+
+def _plot_loss(loss_df, start, end):
+
+    # initialize plot
+    sns.set(style="white")
+    fig, ax = plt.subplots(figsize=(12.5, 7.5))
+
+    # barplot all years
+    ax = sns.barplot(loss_df, x='year', y='deforest', color='darkgrey', ax=ax)
+
+    # annotate all years
+    for g in ax.patches:
+        ax.annotate(
+            format(g.get_height(), '.1f'),
+            (g.get_x() + g.get_width() / 2, g.get_y() + g.get_height()),
+            ha='center',
+            va='center',
+            xytext=(0, 16),
+            textcoords='offset points'
+        )
+
+    # create copy of df to highlight years of selected period
+    new_df = loss_df.copy()
+    new_df.loc[(new_df.year < start) | (new_df.year > end), 'deforest'] = 0
+    ax = sns.barplot(new_df, x='year', y='deforest', color='orange', ax=ax)
+    ax.set_xlabel('Year')
+    ax.set_ylabel('Annual deforestation (km\u00B2)')
+    ax.set_title('Annual deforestation rates according to GFC')
+
+    # a custom legend for a custom plot
+    legend_elements = [
+        Line2D([0], [0], color='orange', label='Selected Period'),
+        Line2D([0], [0], color='darkgrey', label='Other years')
+    ]
+    ax.legend(handles=legend_elements)
+
+    # make the plot nice
+    sns.despine(offset=10, trim=True, ax=ax)
+
+    return fig
 
 
 @retry(stop_max_attempt_number=3, wait_random_min=5000, wait_random_max=10000)
-def gfc_area_statistics(
-        aoi, start=2001, end=2022, tree_cover=20, scale=30
-):
-    """Extract area for AOI, Forest and Deforestation from GFC data
+def get_area_statistics(aoi, start, end, tree_cover=20, mmu=70):
 
-    Args:
-        aoi (ee.Geometry): An Earth Engine geometry representing the
-                           area of interest.
-        start (int, optional): The start year (inclusive) of the analysis.
-                               Defaults to 2001.
-        end (int, optional): The end year (inclusive) of the analysis.
-                             Defaults to 2022.
-        tree_cover (int, optional): The minimum tree cover percentage to
-                                    consider as forest. Defaults to 20.
-        scale (int, optional): The spatial resolution of the analysis
-                               in meters. Defaults to 30.
-
-    Returns:
-        dict: A dictionary containing the following keys:
-            - 'total_area': The total area of the AOI in square kilometers.
-            - 'forest_area': The forest area of the AOI in square kilometers.
-            - 'change_area': The deforested area of the AOI in
-                             square kilometers.
-
-    Raises:
-        ee.EEException: If an Earth Engine API error occurs.
-    """
+    logger.info(
+        'Extracting areas of forest and deforestation from Hansen\'s Global Forest Change '
+        'product. This may take a moment...'
+    )
+    if not isinstance(aoi, ee.FeatureCollection):
+        aoi = py_helpers.read_any_aoi_to_single_row_gdf(aoi)
+        # and uplaod as FC to EE
+        aoi = geemap.geopandas_to_ee(aoi)
 
     # load hansen image
     hansen = ee.Image("UMD/hansen/global_forest_change_2021_v1_9")
-    # create change layer for start and end date (inclusive)
-    loss = hansen.select("lossyear").unmask(0)
-    # get the mask right (weird decimal values in mask)
-    loss = loss.updateMask(loss.mask().eq(1))
-    # get masked change
-    change = loss.gte(ee.Number(start).subtract(2000)).And(
-        loss.lte(ee.Number(end).subtract(2000))
+    # apply tree cover threshhold
+    forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
+
+    # apply mmu
+    mmu_pixel = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_mask = forest_mask.gt(0).connectedPixelCount(
+        ee.Number(mmu_pixel).add(2)
+    ).gte(ee.Number(mmu_pixel))
+    forest_mask = forest_mask.updateMask(mmu_mask)
+
+    # rescale the right way, if scale is different from original
+    scale = mmu_pixel
+    if scale > 30:
+        forest_mask = forest_mask.reduceResolution(**{
+            "reducer": ee.Reducer.mean(),
+            "maxPixels": 65536
+        }).reproject(
+            forest_mask.projection().atScale(scale)
+        ).gt(0.5).rename('forest_area')
+
+    # create a pixel area image for area of full aoi
+    aoi_area = (
+        ee.Image(1).reproject(forest_mask.projection().atScale(scale)).rename('aoi_area')
     )
 
-    # extract forest with subtracted change before start year
-    forest = (
-        hansen.select("treecover2000")
-        .updateMask(loss.gte(ee.Number(start).subtract(2000)).Or(loss.eq(0)))
-        .gt(tree_cover)
-        .unmask(0)
-    )
-
-    # create pixel area stack for forest, change and full aoi
-    pixel_areas = (
-        forest
-        .addBands(change)
-        .addBands(ee.Image(1))
-        .multiply(ee.Image.pixelArea())
-        .rename(["forest_area", "change_area", "total_area"])
-    )
-
-    # extract areas for the given aoi at the given scale
-    areas = pixel_areas.reduceRegion(**{
+    # get actual forest area
+    layer = forest_mask.addBands(aoi_area)
+    forest_area_2000 = layer.multiply(ee.Image.pixelArea()).reduceRegion(**{
         "reducer": ee.Reducer.sum(),
         "geometry": aoi,
         "scale": scale,
         "maxPixels": 1e14,
-    })
+    }).select(['forest_area', 'aoi_area']).getInfo()
 
-    # turn result into a dictionary
-    d, areas = {}, areas.getInfo()
-    for area in areas.keys():
-        d[area] = np.round(areas[area] / 1000000, 2)
+    def yearly_loss(aoi, year):
 
-    # create a timespan to calculate annual average
-    timespan = end - start + 1
-    print(
-        f"According to the GFC product, the Area of Interest covers "
-        f"an area of {d['total_area']} square kilometers, "
-        f"of which {d['forest_area']} square kilometers have been forested "
-        f"in {start} ({np.round(d['forest_area']/d['total_area']*100, 2)} %). "
-        f"Between {start} and {end}, {d['change_area']} "
-        f"square kilometers have been deforested."
-        f"That corresponds to {d['change_area']/timespan} "
-        f"square kilometers of annual deforestation in average."
-    )
+        # create change layer for start and end date (inclusive)
+        loss = hansen.select("lossyear").unmask(0)
+        # get the mask right (weird decimal values in mask)
+        loss = loss.updateMask(loss.mask().eq(1))
+        # get loss of the year and apply forest mask
+        loss = loss.eq(
+            ee.Number(year).subtract(2000)
+        ).updateMask(forest_mask).unmask(0)
 
-    # return values as dictionary
-    return d
+        # rescale the right way, if scale is different from original
+        if scale > 30:
+            loss = loss.reduceResolution(**{
+                "reducer": ee.Reducer.mean(),
+                "maxPixels": 65536
+            }).reproject(
+                loss.projection().atScale(scale)
+            ).gt(0.5)
+
+        # get area
+        loss_area = loss.multiply(ee.Image.pixelArea()).reduceRegion(**{
+            "reducer": ee.Reducer.sum(),
+            "geometry": aoi,
+            "scale": scale,
+            "maxPixels": 1e14,
+        }).select(['lossyear'])
+
+        return [year, np.round(loss_area.getInfo()['lossyear'] / 1000000, 2)]
+
+    gfc_args = []
+    for year in range(2001, 2022, 1):
+        gfc_args.append([aoi, year])
+
+    results = py_helpers.run_in_parallel(yearly_loss, gfc_args, 15)
+
+    # aggregate to dataframe
+    loss_df = pd.DataFrame(results)
+    loss_df.columns = ['year', 'deforest']
+    loss_df.sort_values('year', inplace=True)
+
+    deforest_before_start = loss_df.deforest[loss_df.year < start].sum()
+    deforest_period = loss_df.deforest[(loss_df.year >= start) & (loss_df.year <= end)].sum()
+    forest_area = np.round(forest_area_2000['forest_area'] / 1000000, 2) - deforest_before_start
+
+    area_dict = {
+        'total_area': np.round(forest_area_2000['aoi_area'] / 1000000, 2),
+        'forest_area': forest_area,
+        'change_area': deforest_period
+    }
+
+    fig = _plot_loss(loss_df, start, end)
+    return area_dict, loss_df, fig
 
 
 def cochran_sample_size(precision, confidence_level, population_proportion):
@@ -151,7 +344,7 @@ def cochran_margin_of_error(
 
 
 def determine_minimum_sample_size(
-        area_dict, max_error_margin, confidence_level
+        area_dict, max_error_margin, confidence_level, samples_min, samples_max, samples_step
 ):
     """
     Determines the margin of errors for forest and deforestation areas
@@ -173,7 +366,8 @@ def determine_minimum_sample_size(
     """
 
     d = {}
-    for idx, sample_size in enumerate(range(10000, 500000, 10000)):
+    steps = int((samples_max - samples_min) / samples_step)
+    for idx, sample_size in enumerate(range(samples_min, samples_max, steps)):
 
         # calculate the error at given sample size for deforestation areas
         change_proportion = area_dict["change_area"] / area_dict["total_area"]
@@ -214,7 +408,7 @@ def determine_minimum_sample_size(
     return df, selected_spacing
 
 
-def display_minimum_sample_size(df, selected_spacing, savefile=None):
+def display_minimum_sample_size(df, selected_spacing, xmax=None, savefile=None):
     """Displays the sample size versus margin of error derived from Cochran's
     theorem.
 
@@ -281,150 +475,22 @@ def display_minimum_sample_size(df, selected_spacing, savefile=None):
         ax=axes[1]
     )
 
-    # set some formatting
     axes[0].legend(['Stable Forest', 'Forest Change', 'Ideal'])
     axes[0].set_ylabel('Margin of Error (in %)')
     axes[0].set_facecolor("gainsboro")
     axes[0].grid(color='white')
-    axes[0].autoscale(enable=True, axis='both', tight=True)
+    axes[0].autoscale(enable=True, axis='both', tight=False)
+
+    axes[1].set_ylabel('Grid Spacing (in km)')
     axes[1].legend(['All spacings', 'Ideal'])
     axes[1].set_facecolor("gainsboro")
     axes[1].grid(color='white')
     axes[1].set_box_aspect(1)
-    axes[1].autoscale(enable=True, axis='both', tight=True)
+    axes[1].autoscale(enable=True, axis='both', tight=False)
 
-    # save to a file
-    if savefile:
-        fig.savefig(savefile)
-
-
-@retry(stop_max_attempt_number=5, wait_random_min=5000, wait_random_max=15000)
-def gfc_sampling_simulation(
-        aoi,
-        start,
-        end,
-        area_dict,
-        nr_of_runs_per_grid,
-        grid_spacings,
-        random_seed,
-        scale=30,
-        confidence_level=0.95
-):
-    # create random seeds
-    np.random.seed(random_seed)
-    seeds = np.random.random(nr_of_runs_per_grid)
-    seeds = list(np.round(np.multiply(seeds, 100), 0))
-
-    # get lossyear
-    loss = ee.Image("UMD/hansen/global_forest_change_2021_v1_9").select(
-        'lossyear'
-    ).unmask(0)
-    # filter for time of interest
-    loss = loss.gte(ee.Number(start).subtract(2000)).And(
-        loss.lte(ee.Number(end).subtract(2000)))
-    # re-scale
-    if scale != 30:
-        loss = loss.reduceResolution(**{
-                "reducer": ee.Reducer.mean(), "maxPixels": 65536
-            }).reproject(loss.projection().atScale(scale)).mask().gt(0.5)
-
-    # -----------------------------------------------------------------
-    # nested function for getting proportional change per grid size
-    def sample_simulation(grid_spacing):
-
-        # set grid spacing as forced pixel size
-        proj_at_spacing = ee.Projection("EPSG:3857").atScale(grid_spacing)
-
-        # get overall sample size
-        overall_sample_size = ee.Image(1).rename('sample_size').reproject(
-            proj_at_spacing
-        ).reduceRegion(**{
-                'reducer': ee.Reducer.sum(),
-                'geometry': aoi,
-                'scale': grid_spacing,
-                'maxPixels': 1e14
-            }).get('sample_size')
-
-        # -----------------------------------------------------------------
-        # nested function for getting proportional change per seed and grid
-        def sample_change(seed, proj):
-
-            # create a subsample of our change image
-            cells = ee.Image.random(seed).multiply(1000000).int().reproject(
-                proj)
-            random = ee.Image.random(seed).multiply(1000000).int()
-            maximum = cells.addBands(random).reduceConnectedComponents(
-                ee.Reducer.max()
-            )
-            points = random.eq(maximum).selfMask().reproject(
-                proj.atScale(scale)
-            )
-
-            # create a stack with change and total pixels as 1
-            stack = (
-                loss.updateMask(points)  # masked sample change
-                .addBands(points)  # all samples
-                .multiply(
-                    ee.Image.pixelArea()
-                ).rename(['sampled_change', 'sampled_area'])
-            )
-
-            # sum them up
-            areas = stack.reduceRegion(**{
-                'reducer': ee.Reducer.sum(),
-                'geometry': aoi,
-                'scale': scale,
-                'maxPixels': 1e14
-            })
-
-            # calculate proportional change to entire sampled area
-            proportional_change_sampled = ee.Number(
-                areas.get('sampled_change')).divide(
-                ee.Number(areas.get('sampled_area'))).getInfo()
-
-            return proportional_change_sampled
-
-        # -----------------------------------------------------------------
-        # get sample error mean and stddev
-        proportional_changes = [
-            sample_change(seed, proj_at_spacing) for seed in seeds
-        ]
-
-        # add to a dict of all grids
-        return proportional_changes, overall_sample_size.getInfo()
-
-    d, dfs = {}, []
-    # we map over all different grid sizes
-    print(" Running the sampling error simulation. "
-          "Please be patient, this can take a while.")
-    for idx, spacing in enumerate(grid_spacings):
-        print(
-            f" Running {nr_of_runs_per_grid} times the sample error"
-            f" simulation with a grid spacing of {spacing}"
-            f" meters at a scale of {scale}."
-        )
-
-        sampled_change, sample_size = sample_simulation(spacing)
-        d['idx'] = idx
-        d['spacing'] = spacing
-        d['sample_size'] = sample_size
-        d['sampled_change'] = sampled_change
-        dfs.append(pd.DataFrame([d]))
-
-    # concatenate all dataframes
-    df = pd.concat(dfs)
-    # get actual change
-    actual_change = area_dict['change_area']/area_dict['total_area']
-    # add bias and uncertainty calculations
-    df[[
-        'mean_bias', 'sd_bias', 'mean_sampled_area', 'sd_sampled_area',
-        'uncertainty'
-    ]] = df.apply(
-        lambda x: add_statistical_measures(x, actual_change, confidence_level),
-        axis=1, result_type='expand'
-    )
-
-    return df
+    sns.despine(offset=10, trim=True, ax=axes[0])
+    sns.despine(offset=10, trim=True, ax=axes[1])
+    return fig
 
 
 def add_statistical_measures(row, actual_change, confidence_level=0.95):
@@ -446,15 +512,241 @@ def add_statistical_measures(row, actual_change, confidence_level=0.95):
 
     # bias calculation
     abs_errors = [
-        np.abs(np.subtract(i, actual_change)) for i in row['sampled_change']
+        np.abs(np.subtract(i, actual_change)) for i in row['Sampled Change']
     ]
     mean_dev, sd_dev = np.nanmean(abs_errors), np.nanstd(abs_errors)
 
     # uncertainty calculation
-    mean_area = np.nanmean(row['sampled_change'])
-    sd_area = np.nanstd(row['sampled_change'])
+    mean_area = np.nanmean(row['Sampled Change'])
+    sd_area = np.nanstd(row['Sampled Change'])
     z_score = abs(stats.norm.ppf((1 - confidence_level) / 2))
     ci = z_score * sd_area
     uncertainty = ci / mean_area
 
-    return mean_dev, sd_dev, mean_area, sd_area, uncertainty
+    return mean_dev*100, sd_dev*100, mean_area, sd_area, uncertainty*100
+
+
+def gfc_sampling_simulation(
+        aoi,
+        start,
+        end,
+        area_dict,
+        tree_cover,
+        mmu,
+        nr_of_runs_per_grid,
+        grid_spacings,
+        random_seed,
+        scale=30,
+        confidence_level=0.95
+):
+
+    if not isinstance(scale, list):
+        scale = [scale]
+
+    if not isinstance(aoi, ee.FeatureCollection):
+        aoi = py_helpers.read_any_aoi_to_single_row_gdf(aoi)
+        # and upload as FC to EE
+        aoi = geemap.geopandas_to_ee(aoi)
+
+    # create random seeds
+    np.random.seed(random_seed)
+    seeds = np.random.random(nr_of_runs_per_grid)
+    seeds = list(np.round(np.multiply(seeds, 100), 0))
+
+    # load hansen image
+    hansen = ee.Image("UMD/hansen/global_forest_change_2021_v1_9")
+    # apply tree cover threshhold
+    forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
+
+    # apply mmu
+    mmu_pixel = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_mask = forest_mask.gt(0).connectedPixelCount(ee.Number(mmu_pixel).add(2)).gte(ee.Number(mmu_pixel))
+    forest_mask = forest_mask.updateMask(mmu_mask)
+
+    # get lossyear
+    loss = ee.Image('UMD/hansen/global_forest_change_2021_v1_9').select('lossyear').unmask(0)
+
+    # get the mask right (weird decimal values in mask)
+    loss = loss \
+        .updateMask(forest_mask) \
+        .updateMask(loss.mask().eq(1))
+
+    # filter for time of interest
+    loss = loss.gte(ee.Number(start).subtract(2000)).And(
+        loss.lte(ee.Number(end).subtract(2000))
+    )
+
+    # -----------------------------------------------------------------
+    # nested function for getting proportional change per grid size
+    def sample_simulation(grid_spacing, _scale, _loss):
+
+        # resample loss layer
+        if _scale != 30:
+            _loss = loss.reduceResolution(**{
+                "reducer": ee.Reducer.mean(),
+                "maxPixels": 65536
+            }).reproject(
+                loss.projection().atScale(_scale)
+            ).gt(0.5)
+
+        # set grid spacing at forced pixel size
+        proj_at_spacing = loss.projection().atScale(grid_spacing)
+
+        # get overall sample size
+        overall_sample_size = ee.Image(1).rename('sample_size').reproject(
+            proj_at_spacing
+        ).reduceRegion(**{
+            'reducer': ee.Reducer.sum(),
+            'geometry': aoi,
+            'scale': grid_spacing,
+            'maxPixels': 1e14
+        }).get('sample_size')
+
+        # -----------------------------------------------------------------
+        # nested function for getting proportional change per seed and grid
+        @retry(stop_max_attempt_number=5, wait_random_min=5000, wait_random_max=15000)
+        def sample_change(seed, proj):
+
+            # create a subsample of our change image
+            cells = ee.Image.random(seed).multiply(1000000).int().reproject(proj)
+            random = ee.Image.random(seed).multiply(1000000).int().reproject(
+                loss.projection().atScale(_scale))
+
+            maximum = cells.addBands(random).reduceConnectedComponents(ee.Reducer.max())
+            points = random.eq(maximum).selfMask().reproject(proj.atScale(_scale))
+
+            # create a stack with change and total pixels as 1
+            stack = (
+                _loss.updateMask(points)  # masked sample change
+                .addBands(points)  # all samples
+                .multiply(
+                    ee.Image.pixelArea()
+                ).rename(['sampled_change', 'sampled_area'])
+            )
+
+            # sum them up
+            areas = stack.reduceRegion(**{
+                'reducer': ee.Reducer.sum(),
+                'geometry': aoi,
+                'scale': _scale,
+                'maxPixels': 1e14
+            })
+
+            # calculate proportional change to entire sampled area
+            proportional_change_sampled = ee.Number(
+                areas.get('sampled_change')).divide(
+                ee.Number(areas.get('sampled_area'))).getInfo()
+
+            return proportional_change_sampled
+
+        # -----------------------------------------------------------------
+        # get sample error mean and stddev
+        proportional_changes = [sample_change(seed, proj_at_spacing) for seed in seeds]
+
+        # add to a dict of all grids
+        return proportional_changes, overall_sample_size.getInfo(), grid_spacing, _scale
+
+    d, dfs = {}, []
+    # we map over all different grid sizes
+    logger.info('Running the sampling error simulation. This can take a while...')
+
+    # create list of args for parallel execution
+    args = []
+    for arguments in itertools.product(grid_spacings, scale):
+        base_args = list(arguments)
+        base_args.append(loss)
+        args.append(base_args)
+
+    # extract in parallel
+    results = py_helpers.run_in_parallel(sample_simulation, args, 15)
+
+    # turn to dataframe
+    stats_df = pd.DataFrame(results)
+    stats_df.columns = ['Sampled Change', 'Sample Size', 'Grid Spacing', 'Scale']
+
+    # get actual change
+    actual_change = area_dict['change_area'] / area_dict['total_area']
+
+    # add bias and uncertainty calculations
+    stats_df[[
+        'Bias (Mean)', 'Bias (StdDev)', 'Sampled Area (Mean)', 'Sampled Area (StdDev)',
+        'Margin of Error'
+    ]] = stats_df.apply(
+        lambda x: add_statistical_measures(x, actual_change, confidence_level),
+        axis=1,
+        result_type='expand'
+    )
+
+    return stats_df
+
+
+def display_simulation(simulated_df, area_dict, calculated_df=None):
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(15, 7))
+    palette = sns.color_palette("flare", as_cmap=True)
+
+    axes[0] = sns.scatterplot(
+        data=simulated_df,
+        x='Sample Size',
+        y='Margin of Error',
+        hue='Grid Spacing',
+        size='Scale',
+        palette=palette,
+        ax=axes[0]
+    )
+    axes[0] = sns.scatterplot(
+        data=calculated_df,
+        x='Sample Size',
+        y='Margin of Error (Deforestation)',
+        hue='Grid Spacing',
+        marker='*', s=100,
+        legend=False,
+        palette=palette,
+        ax=axes[0]
+    )
+    axes[0].set_facecolor("gainsboro")
+    axes[0].grid(color='white')
+    axes[0].set_box_aspect(1)
+    axes[0].autoscale(enable=True, axis='both', tight=False)
+    sns.despine(offset=10, trim=False, ax=axes[0])
+
+    # prep for violin plot
+    tmp_dfs = []
+    for i, row in simulated_df.iterrows():
+        tmp_dfs.append(pd.DataFrame([
+            (
+                sampled_area * area_dict['total_area'],
+                row['Grid Spacing'],
+                row['Scale']
+            ) for sampled_area in row['Sampled Change']
+        ]))
+
+    tmp_df = pd.concat(tmp_dfs)
+    tmp_df.columns = ['Sampled Change', 'Grid Spacing', 'Scale']
+    # plot
+    palette = sns.color_palette("flare")
+    axes[1] = sns.violinplot(
+        data=tmp_df,
+        x='Grid Spacing',
+        y='Sampled Change',
+        hue='Scale',
+        ax=axes[1],
+        palette=palette
+    )
+    # Drawing a horizontal line at point 1.25
+    axes[1].axhline(area_dict['change_area'], c='black', linestyle='dotted')
+    axes[1].set_facecolor("gainsboro")
+    axes[1].grid(color='white')
+    axes[1].set_box_aspect(1)
+    axes[1].autoscale(enable=True, axis='both', tight=False)
+    sns.despine(offset=10, trim=True)
+
+    # add linelegend
+    # where some data has already been plotted to ax
+    handles, labels = axes[1].get_legend_handles_labels()
+
+    # manually define a new patch
+    line = Line2D([0], [0], color='black', label='True Change', linestyle='dotted')
+    # handles is a list, so append manual patch
+    handles.append(line)
+    axes[1].legend(handles=handles, title='Scale')
+    return fig

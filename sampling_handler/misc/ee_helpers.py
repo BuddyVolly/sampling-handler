@@ -142,7 +142,13 @@ def check_finished_tasks(tasks, wait=30):
             state = task.status()['state']
             if state == 'COMPLETED':
                 finished = True
-            else:
+            elif state in ['FAILED', 'CANCELLED']:
+                if task.status()['error_message'] == 'Table is empty.':
+                    finished = True
+                else:
+                    finished = True
+                    raise 'Upload failed'
+            elif state in ['UNSUBMITTED', 'SUBMITTED', 'READY', 'RUNNING', 'CANCEL_REQUESTED']:
                 finished = False
                 break
 
@@ -169,7 +175,7 @@ def cleanup_tmp_esbae():
 
     asset_root = ee.data.getAssetRoots()[0]["id"]
     for a in ee.data.listAssets({"parent": f"{asset_root}"})["assets"]:
-        if a["name"].split('/')[-1][:4] == "tmp_esbae":
+        if a["name"].split('/')[-1][:9] == "tmp_esbae":
             delete_sub_folder(a["name"].split('/')[-1])
 
 
@@ -188,7 +194,7 @@ def merge_fcs(sub_folder):
     return ee_fc
 
 
-def export_to_ee(gdf, asset_name, ee_sub_folder=None):
+def export_to_ee(gdf, asset_name, ee_sub_folder=None, chunk_size=25000):
     """Function to export any kind of GeoDataFrame or temporary Feature Collection
     as an Earth Engine asset
 
@@ -219,7 +225,7 @@ def export_to_ee(gdf, asset_name, ee_sub_folder=None):
             "Input must be a either a ee.FeatureCollection or a gpd.GeoDataFrame object"
         )
 
-    if len(gdf) > 25000:
+    if len(gdf) > chunk_size:
 
         logger.info("Need to run splitted upload routine as the dataframe has more than 25000 rows")
         #
@@ -228,7 +234,7 @@ def export_to_ee(gdf, asset_name, ee_sub_folder=None):
 
         # upload chunks of data to avoid hitting upload limitations
         logger.info(f"Uploading chunks of the dataframe into temporary assets")
-        chunks, tasks = split_dataframe(gdf), []
+        chunks, tasks = split_dataframe(gdf, chunk_size=chunk_size), []
         for i, chunk in enumerate(chunks):
 
             # turn gdf into Feature Collection
@@ -248,8 +254,8 @@ def export_to_ee(gdf, asset_name, ee_sub_folder=None):
         check_finished_tasks(tasks)
 
         # merge assets
-        print('Aggregate the temporary assets')
-        ee_fc = merge_fcs
+        logger.info('Aggregating the temporary assets')
+        ee_fc = merge_fcs(tmp_folder)
 
         logger.debug(f"Exporting aggregated assets to final EE asset {asset_name}")
         _, asset_id = _ee_export_table(
@@ -260,7 +266,7 @@ def export_to_ee(gdf, asset_name, ee_sub_folder=None):
         )
 
         delete_sub_folder(tmp_folder)
-        logger.debug(f"Upload completed. You can find the samples at {asset_name}")
+        logger.info(f"Upload completed. You can find the samples at {asset_name}")
     else:
 
         # turn into FC

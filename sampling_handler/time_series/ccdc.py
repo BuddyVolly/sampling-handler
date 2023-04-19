@@ -1,5 +1,6 @@
-from datetime import datetime as dt
+import time
 import logging
+from datetime import datetime as dt
 
 import ee
 import requests
@@ -16,23 +17,23 @@ logger = logging.getLogger(__name__)
 setup_logger(logger)
 
 
-def get_segments(ccdcAst, mask_1d):
+def get_segments(ccdc_asset, mask_1d):
     """ """
-    bands_2d = ccdcAst.select(".*_coefs").bandNames()
-    bands_1d = ccdcAst.bandNames().removeAll(bands_2d)
-    segment_1d = ccdcAst.select(bands_1d).arrayMask(mask_1d)
+    bands_2d = ccdc_asset.select(".*_coefs").bandNames()
+    bands_1d = ccdc_asset.bandNames().removeAll(bands_2d)
+    segment_1d = ccdc_asset.select(bands_1d).arrayMask(mask_1d)
     mask_2d = mask_1d.arrayReshape(ee.Image(ee.Array([-1, 1])), 2)
-    segment_2d = ccdcAst.select(bands_2d).arrayMask(mask_2d)
+    segment_2d = ccdc_asset.select(bands_2d).arrayMask(mask_2d)
     return segment_1d.addBands(segment_2d)
 
 
-def get_segment(ccdcAst, mask_1d):
+def get_segment(ccdc_asset, mask_1d):
     """ """
-    bands_2d = ccdcAst.select(".*_coefs").bandNames()
-    bands_1d = ccdcAst.bandNames().removeAll(bands_2d)
-    segment_1d = ccdcAst.select(bands_1d).arrayMask(mask_1d).arrayGet([0])
+    bands_2d = ccdc_asset.select(".*_coefs").bandNames()
+    bands_1d = ccdc_asset.bandNames().removeAll(bands_2d)
+    segment_1d = ccdc_asset.select(bands_1d).arrayMask(mask_1d).arrayGet([0])
     mask_2d = mask_1d.arrayReshape(ee.Image(ee.Array([-1, 1])), 2)
-    segment_2d = ccdcAst.select(bands_2d).arrayMask(mask_2d).arrayProject([1])
+    segment_2d = ccdc_asset.select(bands_2d).arrayMask(mask_2d).arrayProject([1])
     return segment_1d.addBands(segment_2d)
 
 
@@ -47,16 +48,14 @@ def transform_date(date):
 @retry(stop_max_attempt_number=3, wait_random_min=5000, wait_random_max=10000)
 def run_ccdc(df, samples, config_dict):
 
-    ccdc_params = config_dict["ccdc_params"]
-    ts_band = config_dict["ts_params"]["ts_band"]
-    bands = config_dict["ts_params"]["bands"]
-    point_id_name = config_dict["ts_params"]["point_id"]
+    point_id_name = config_dict["design_params"]["pid"]
+    da_params = config_dict["da_params"]
+    ccdc_params = da_params["ccdc"]
+    ts_band = da_params["ts_band"]
+    start_monitor = da_params["start_monitor"]
+    end_monitor = da_params["end_monitor"]
 
-    start_calibration = config_dict["ts_params"]["start_calibration"]
-    start_monitor = config_dict["ts_params"]["start_monitor"]
-    end_monitor = config_dict["ts_params"]["end_monitor"]
-
-    args_list, iColl, points = [], None, []
+    args_list, img_coll, points = [], None, []
     for i, row in df.iterrows():
 
         # get dates
@@ -93,16 +92,16 @@ def run_ccdc(df, samples, config_dict):
 
         # create the image collection
         tsee = ee.ImageCollection(ts.map(zip_to_image))
-        iColl = iColl.cat(tsee.toList(tsee.size())) if iColl else tsee.toList(
+        img_coll = img_coll.cat(tsee.toList(tsee.size())) if img_coll else tsee.toList(
             tsee.size())
 
     points = samples.filter(ee.Filter.inList(point_id_name, points))
     # print(points.getInfo())
-    iColl = ee.ImageCollection.fromImages(iColl)
+    img_coll = ee.ImageCollection.fromImages(img_coll)
 
     # add collection and remove run from parameter dict
     params = ccdc_params.copy()
-    params['collection'] = iColl
+    params['collection'] = img_coll
     params.pop("run", None)
 
     # run ccdc
@@ -169,9 +168,10 @@ def run_ccdc(df, samples, config_dict):
 
 def get_ccdc(df, samples, config_dict):
 
+    start = time.time()
     logger.info('Running CCDC')
-    point_id_name = config_dict['ts_params']['point_id']
-    ts_band = config_dict['ts_params']['ts_band']
+    point_id_name = config_dict['design_params']['pid']
+    ts_band = config_dict['da_params']['ts_band']
 
     ccdc_args = []
     for i in range(0, len(df), 10):
@@ -181,6 +181,8 @@ def get_ccdc(df, samples, config_dict):
     eedf = pd.concat(result)
     eedf["ccdc_change_date"] = eedf["tBreak"].apply(lambda x: transform_date(x))
     eedf["ccdc_magnitude"] = eedf[f"{ts_band}_magnitude"]
+    py_helpers.timer(start, 'Running CCDC finished in')
+
     return pd.merge(
             df,
             eedf[["ccdc_change_date", "ccdc_magnitude", point_id_name]],

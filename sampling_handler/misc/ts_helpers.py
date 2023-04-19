@@ -6,8 +6,6 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
-import geopandas as gpd
-import dask_geopandas as dgpd
 
 from ..misc.settings import setup_logger
 

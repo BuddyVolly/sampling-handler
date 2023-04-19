@@ -17,16 +17,6 @@ from .jrc_nrt import run_jrc_nrt
 # Create a logger object
 logger = logging.getLogger(__name__)
 LOGFILE = setup_logger(logger)
-# default bFast parameters
-defaults = {
-    "start_monitor": dt.strptime("2000-01-01", "%Y-%m-%d"),
-    "freq": 365,
-    "k": 3,
-    "hfrac": 0.25,
-    "trend": False,
-    "level": 0.05,
-    "backend": "python",
-}
 
 
 def bfast_monitor(data, dates, point_id, bfast_params):
@@ -118,6 +108,7 @@ def timescan(ts, point_id, outlier_removal, z_threshhold):
     else:
         return -1, -1, -1, -1, point_id
 
+
 def _slope(x, y):
 
     A = np.vstack([x, np.ones(len(x))]).T
@@ -171,25 +162,25 @@ def py_change(df, config_dict):
     Parallel implementation of the bfast_monitor function
     """
 
-    pid = config_dict["ts_params"]["point_id"]
-    bands = config_dict['ts_params']['bands']
-    ts_band = config_dict["ts_params"]["ts_band"]
-    bfast_params = config_dict["bfast_params"]
+    pid = config_dict['design_params']['pid']
+    bands = config_dict['ts_params']['lsat_params']['bands']
 
-    # run criteria
-    bfast = config_dict["bfast_params"]["run"]
-    cusum = config_dict["cusum_params"]["run"]
-    ts_metrics = config_dict["ts_metrics_params"]["run"]
-    bs_slope = config_dict["bs_slope_params"]["run"]
-    jrc_nrt = config_dict["jrc_nrt_params"]["run"]
+    da_params = config_dict['da_params']
+    ts_band = da_params['ts_band']
+    bfast_params = da_params['bfast']
+    bfast = da_params['bfast']['run']
+    cusum = da_params['cusum']['run']
+    ts_metrics = da_params['ts_metrics']['run']
+    bs_slope = da_params['bs_slope']['run']
+    jrc_nrt = da_params['jrc_nrt']['run']
 
     # algorithmic specific params
-    bs_bootstraps = config_dict['bs_slope_params']['nr_of_bootstraps']
-    cusum_bootstraps = config_dict["cusum_params"]["nr_of_bootstraps"]
-    ts_metrics_params = config_dict["ts_metrics_params"]
+    bs_bootstraps = da_params['bs_slope']['nr_of_bootstraps']
+    cusum_bootstraps = da_params['cusum']['nr_of_bootstraps']
+    ts_metrics_params = da_params['ts_metrics']
     outlier_removal, z_threshhold = (
-        ts_metrics_params["outlier_removal"],
-        ts_metrics_params["z_threshhold"],
+        ts_metrics_params['outlier_removal'],
+        ts_metrics_params['z_threshhold'],
     )
 
     # get monitor only
@@ -197,15 +188,16 @@ def py_change(df, config_dict):
         df[['dates_mon', 'ts_mon', 'mon_images']] = df.apply(
             lambda row: subset_ts(
                 row,
-                config_dict['ts_params']['start_monitor'],
-                config_dict['ts_params']['end_monitor'],
+                da_params['start_monitor'],
+                da_params['end_monitor'],
                 bands
             ),
             axis=1,
             result_type='expand',
         )
 
-    bfast_args, bs_args, cusum_args, ts_args, nrt_args, d = [], [], [], [], [], {}
+    bfast_args, bs_args, cusum_args, ts_args, nrt_args = [], [], [], [], []
+    d = {}
     for i, row in df.iterrows():
 
         if bfast:
@@ -235,60 +227,85 @@ def py_change(df, config_dict):
             )
 
         if jrc_nrt:
-            nrt_args.append([row.ts[ts_band], row.dates, row[pid], config_dict["ts_params"]])
+            nrt_args.append(
+                [row.ts[ts_band], row.dates, row[pid], config_dict]
+            )
 
     # parallel execution
-    start = time.time()
-    workers = config_dict['workers']
+    workers = config_dict['da_params']['py_workers']
     if bfast:
-        logger.info("Running BFAST")
-        results = run_in_parallel(bfast_monitor, bfast_args, workers, 'processes')
+        start = time.time()
+        logger.info('Running the B-FAST algorithm on current batch of points.')
+        results = run_in_parallel(
+            bfast_monitor, bfast_args, workers, 'processes'
+        )
         d = {i: result for i, result in enumerate(results)}
-        bfast_df = pd.DataFrame.from_dict(d, orient="index")
-        bfast_df.columns = ["bfast_change_date", "bfast_magnitude", "bfast_means", pid]
+        bfast_df = pd.DataFrame.from_dict(d, orient='index')
+        bfast_df.columns = [
+            'bfast_change_date', 'bfast_magnitude', 'bfast_means', pid
+        ]
         df = pd.merge(df, bfast_df, on=pid)
-        timer(start, "BFAST done")
+        timer(start, 'BFAST finished in')
 
     if cusum:
-        logger.info("Running Cusum")
-        results = run_in_parallel(cusum_deforest, cusum_args, workers, 'processes')
+        start = time.time()
+        logger.info('Running the CuSum algorithm on current batch of points.')
+        results = run_in_parallel(
+            cusum_deforest, cusum_args, workers, 'processes'
+        )
         d = {i: result for i, result in enumerate(results)}
-        cusum_df = pd.DataFrame.from_dict(d, orient="index")
-        cusum_df.columns = ["cusum_change_date", "cusum_confidence", "cusum_magnitude", pid]
+        cusum_df = pd.DataFrame.from_dict(d, orient='index')
+        cusum_df.columns = [
+            'cusum_change_date', 'cusum_confidence', 'cusum_magnitude', pid
+        ]
         df = pd.merge(df, cusum_df, on=pid)
-        timer(start, "Cusum done")
+        timer(start, 'CuSum finished in')
 
     if ts_metrics:
-        logger.info("Running timescan")
-        results = run_in_parallel(timescan, ts_args, workers)
-        d = {i: result for i, result in enumerate(results)}
-        tscan_df = pd.DataFrame.from_dict(d, orient="index")
-        tscan_df.columns = ["ts_mean", "ts_sd", "ts_min", "ts_max", pid]
-        df = pd.merge(df, tscan_df, on=pid)
-        timer(start, "TS metrics done")
+        start = time.time()
+        logger.info('Running the time-scan on current batch of points.')
+        for band in ts_metrics_params['bands']:
+            ts_args.append(
+                [row.ts_mon[ts_band], row[pid], outlier_removal, z_threshhold]
+            )
+            results = run_in_parallel(timescan, ts_args, workers)
+            d = {i: result for i, result in enumerate(results)}
+            tscan_df = pd.DataFrame.from_dict(d, orient='index')
+            tscan_df.columns = [f'{band}_mean', f'{band}_sd', f'{band}_min', f'{band}_max', pid]
+            df = pd.merge(df, tscan_df, on=pid)
+            timer(start, f'Time-scan metrics for band {band} finished in')
 
     if bs_slope:
-        logger.info("Running slope")
-        results = run_in_parallel(bootstrap_slope, bs_args, workers, 'processes')
+        start = time.time()
+        logger.info(
+            'Running the slope (trend) analysis on current batch of points.'
+        )
+        results = run_in_parallel(
+            bootstrap_slope, bs_args, workers, 'processes'
+        )
         d = {i: result for i, result in enumerate(results)}
-        bs_df = pd.DataFrame.from_dict(d, orient="index")
-        bs_df.columns = ['bs_slope_mean', 'bs_slope_sd', 'bs_slope_max', 'bs_slope_min', pid]
+        bs_df = pd.DataFrame.from_dict(d, orient='index')
+        bs_df.columns = [
+            'bs_slope_mean', 'bs_slope_sd', 'bs_slope_max', 'bs_slope_min', pid
+        ]
         df = pd.merge(df, bs_df, on=pid)
-        timer(start, "slope done")
+        timer(start, 'Slope (trend) analysis finished in')
 
     if jrc_nrt:
-        logger.info("Running JRC")
+        start = time.time()
+        logger.info('Running EWMA, MoSUm, CuSum from JRC NRT package')
         results = run_in_parallel(run_jrc_nrt, nrt_args, workers, 'processes')
         d = {i: result for i, result in enumerate(results)}
-        nrt_df = pd.DataFrame.from_dict(d, orient="index")
+        nrt_df = pd.DataFrame.from_dict(d, orient='index')
         nrt_df.columns = [
             pid,
-            "ewma_jrc_date", "ewma_jrc_change", "ewma_jrc_magnitude",
-            "mosum_jrc_date", "mosum_jrc_change", "mosum_jrc_magnitude",
-            "cusum_jrc_date", "cusum_jrc_change", "cusum_jrc_magnitude"
+            'ewma_jrc_date', 'ewma_jrc_change', 'ewma_jrc_magnitude',
+            'mosum_jrc_date', 'mosum_jrc_change', 'mosum_jrc_magnitude',
+            'cusum_jrc_date', 'cusum_jrc_change', 'cusum_jrc_magnitude'
         ]
         df = pd.merge(df, nrt_df, on=pid)
-        timer(start, "jrc done")
+        timer(start, 'JRC NRT algorithms finished in')
+
     # drop unnecessary columns
     cols_to_drop = ['dates_mon', 'ts_mon']
     df.drop([col for col in cols_to_drop if col in df], axis=1, inplace=True)

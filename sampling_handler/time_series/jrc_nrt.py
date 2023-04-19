@@ -6,17 +6,17 @@ import numpy as np
 from nrt.monitor.ewma import EWMA
 from nrt.monitor.cusum import CuSum
 from nrt.monitor.mosum import MoSum
+# TODO from nrt.monitor.ccdc import CCDC
 
-# from nrt.monitor.ccdc import CCDC
 
-
-def run_jrc_nrt(dates, ts, pid, ts_params):
+def run_jrc_nrt(dates, ts, pid, config_dict):
 
     # extract point id column name
-    start_hist = ts_params["start_calibration"]
-    start_mon = ts_params["start_monitor"]
-    end_mon = ts_params["end_monitor"]
-    point_id_name = ts_params["point_id"]
+    point_id_name = config_dict['design_params']['pid']
+    cd_params = config_dict['da_params']
+    start_hist = cd_params['start_calibration']
+    start_mon = cd_params['start_monitor']
+    end_mon = cd_params['end_monitor']
 
     try:
         # aggregate to arrays for multiindexing

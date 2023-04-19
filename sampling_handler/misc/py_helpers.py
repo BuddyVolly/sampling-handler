@@ -88,7 +88,7 @@ def run_in_parallel(func, arg_list, workers, parallelization='threads'):
     return results
 
 
-def save_gdf_locally(gdf, outdir=None, ceo_csv=True, gpkg=True):
+def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None):
 
     # if it is already a feature collection
     if isinstance(gdf, ee.FeatureCollection):
@@ -101,24 +101,25 @@ def save_gdf_locally(gdf, outdir=None, ceo_csv=True, gpkg=True):
         outdir = Path(outdir)
 
     outdir.mkdir(parents=True, exist_ok=True)
-    logger.info(f" Saving outputs to {outdir}")
-    gdf["LON"] = gdf["geometry"].x
-    gdf["LAT"] = gdf["geometry"].y
-
-    # sort columns for CEO output
-    gdf["PLOTID"] = gdf["point_id"]
-    cols = gdf.columns.tolist()
-    cols = [e for e in cols if e not in ("LON", "LAT", "PLOTID")]
-    new_cols = ["PLOTID", "LAT", "LON"] + cols
-    gdf = gdf[new_cols]
+    logger.debug(f'Saving outputs to {outdir}')
 
     if ceo_csv:
+
+        gdf["LON"] = gdf["geometry"].x
+        gdf["LAT"] = gdf["geometry"].y
+        # sort columns for CEO output
+        gdf["PLOTID"] = gdf["point_id"]
+        cols = gdf.columns.tolist()
+        cols = [e for e in cols if e not in ("LON", "LAT", "PLOTID")]
+        new_cols = ["PLOTID", "LAT", "LON"] + cols
+        gdf = gdf[new_cols]
+
         gdf[["PLOTID", "LAT", "LON"]].to_csv(
-            outdir.joinpath("01_sbae_points.csv"), index=False
+            outdir.joinpath(ceo_csv), index=False
         )
 
     if gpkg:
-        gdf.to_file(outdir.joinpath("01_sbae_points.gpkg"), driver="GPKG")
+        gdf.to_file(outdir.joinpath(gpkg), driver="GPKG")
 
 
 def split_dataframe(df, chunk_size=25000):
@@ -133,7 +134,7 @@ def split_dataframe(df, chunk_size=25000):
     return chunks
 
 
-def read_any_aoi_to_single_row_gdf(aoi, outcrs='epsg:4326'):
+def read_any_aoi_to_single_row_gdf(aoi, incrs=None, outcrs='epsg:4326'):
     """
 
     :param aoi:
@@ -147,21 +148,30 @@ def read_any_aoi_to_single_row_gdf(aoi, outcrs='epsg:4326'):
     if isinstance(aoi, (str, Path)):
         aoi = gpd.read_file(aoi)
 
-    if isinstance(aoi, gpd.geodataframe.GeoDataFrame):
-        aoi = aoi
-    else:
-        raise(
+    if isinstance(aoi, dict):   # Feature Collection json type object
+        try:
+            aoi = gpd.GeoDataFrame.from_features(aoi)
+        except:
+            pass
+
+    if not isinstance(aoi, gpd.geodataframe.GeoDataFrame):
+
+        raise ValueError(
             'Area of Interest does not have the right format. '
             'Shall be either a path to a file, a geopandas GeoDataFrame '
             'or a Earth Engine Feature Collection'
         )
 
     if not aoi.crs:
-        crs_original = input(
-            "Your AOI does not have a coordinate reference system (CRS). "
-            "Please provide the CRS of the AOI (e.g. epsg:4326): "
-        )
-        aoi.set_crs(crs_original, inplace=True)
+
+        if incrs:
+            aoi.set_crs(incrs, inplace=True)
+        else:
+            crs_original = input(
+                "Your AOI does not have a coordinate reference system (CRS). "
+                "Please provide the CRS of the AOI (e.g. epsg:4326): "
+            )
+            aoi.set_crs(crs_original, inplace=True)
 
     # ensure single geometry
     logger.debug("Dissolve geometry and reproject to crs.")

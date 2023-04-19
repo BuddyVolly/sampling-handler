@@ -1,0 +1,129 @@
+{
+  "project_params": {
+    "project_dir": "/home/sepal-user/module_results/esbae",
+    "aoi": null,
+    "aoi_crs": null
+  },
+  "stats_params": {
+    "start": "2001",
+    "end": "2022",
+    "tree_cover": 10,
+    "mmu": 0.5,
+    "target_error": 10,
+    "confidence": 95,
+    "optimal_spacing": 0,
+    "spacings": [1000, 2000, 4000],
+    "scales": [70],
+    "runs": 10,
+    "random_seed": 42
+  },
+  "design_params": {
+    "sampling_strategy": "centroid",
+    "grid_shape": "hexagonal",
+    "grid_size": 2000,
+    "grid_crs": "ESRI:54017",
+    "out_crs": "EPSG:4326",
+    "dggrid": {
+      "projection": "ISEA3H",
+      "resolution": 15
+    },
+    "pid": "point_id",
+    "ee_samples_fc": null,
+    "ee_hex_fc": null
+  },
+  "ts_params": {
+    "ts_start": "1990-01-01",
+    "ts_end": "2030-01-01",
+    "satellite": "Landsat",
+    "bands": ["green", "red", "nir", "swir1", "swir2", "ndfi"],
+    "lsat_params": {
+      "l9": true,
+      "l8": true,
+      "l7": true,
+      "l5": true,
+      "l4": true,
+      "brdf": true,
+      "bands": ["green", "red", "nir", "swir1", "swir2", "ndfi"],
+      "max_cc": 100
+    },
+    "scale": 70,
+    "ee_workers": 20,
+    "max_points_per_chunk": 100,
+    "grid_size_levels": [0.25, 0.125, 0.075]
+  },
+  "da_params": {
+    "start_calibration": "2010-01-01",
+    "start_monitor": "2020-01-01",
+    "end_monitor": "2030-01-01",
+    "ts_band": "ndfi",
+    "outlier_removal": true,
+    "smooth_ts": true,
+    "bfast": {
+      "run": true,
+      "start_monitor": "2000-01-01",
+      "freq": 365,
+      "k": 3,
+      "hfrac": 0.25,
+      "trend": true,
+      "level": 0.05,
+      "backend": "python"
+    },
+    "cusum": {
+      "run": true,
+      "nr_of_bootstraps": 1000
+    },
+    "bs_slope": {
+      "run": true,
+      "nr_of_bootstraps": 1000
+    },
+    "ts_metrics": {
+      "run": true,
+      "bands": ["ndfi"],
+      "metrics": ["mean", "stddev", "min", "max"],
+      "outlier_removal": false,
+      "z_threshhold": 3
+    },
+    "ccdc": {
+      "run": true,
+      "breakpointBands": ["green", "red", "nir", "swir1", "swir2"],
+      "tmaskBands": ["green", "swir2"],
+      "minObservations": 6,
+      "chiSquareProbability": 0.99,
+      "minNumOfYearsScaler": 1,
+      "dateFormat": 2,
+      "lambda": 20,
+      "maxIterations": 1000
+    },
+    "land_trendr": {
+      "run": false,
+      "maxSegments": 6,
+      "spikeThreshold": 0.9,
+      "vertexCountOvershoot": 3,
+      "preventOneYearRecovery": true,
+      "recoveryThreshold": 0.25,
+      "pvalThreshold": 0.05,
+      "bestModelProportion": 0.75,
+      "minObservationsNeeded": 3
+    },
+    "jrc_nrt": {
+      "run": true
+    },
+    "global_products": {
+      "run": true,
+      "gfc": true,
+      "tmf": true,
+      "tmf_years": true,
+      "esa_lc20": true,
+      "copernicus_lc": true,
+      "esri_lc": true,
+      "lang_tree_height": true,
+      "potapov_tree_height": true,
+      "elevation": true,
+      "dynamic_world_tree_prob": true,
+      "dynamic_world_class_mode": true
+    },
+    "py_workers": 50,
+    "ee_workers": 20,
+    "file_accumulation": 2500
+  }
+}
