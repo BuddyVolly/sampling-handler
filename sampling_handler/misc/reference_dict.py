@@ -154,7 +154,6 @@ REFERENCE_DICT = {
         },
         'py_workers': {'type': int, 'choices': range(1, 10000)},
         'ee_workers': {'type': int, 'choices': range(1, 10000)},
-        'file_accumulation': {'type': int, 'choices': range(1, 100000)},
         'outdir': {'type': str}
     }
 }

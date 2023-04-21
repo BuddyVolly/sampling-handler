@@ -123,7 +123,6 @@
       "dynamic_world_class_mode": true
     },
     "py_workers": 50,
-    "ee_workers": 20,
-    "file_accumulation": 2500
+    "ee_workers": 20
   }
 }

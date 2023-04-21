@@ -1,14 +1,14 @@
 import json
 import logging
+import time
 from pathlib import Path
 from datetime import datetime as dt
 
 import ee
 from pyproj import Proj
-from pyproj.crs import CRSError
 
 from .reference_dict import REFERENCE_DICT
-from ..misc.py_helpers import read_any_aoi_to_single_row_gdf
+from ..misc.py_helpers import read_any_aoi_to_single_row_gdf, timer
 from .settings import setup_logger
 
 # Create a logger object
@@ -144,7 +144,7 @@ def _check_value(key, value, reference_dict):
 
 def update_config_file(config_file, config_dict):
 
-    logger.info('Verifying parameter settings.')
+    logger.info('Verifying parameter settings...')
     # check for any false entries
     for key in config_dict.keys():
         _check_value(key, config_dict[key], REFERENCE_DICT[key])

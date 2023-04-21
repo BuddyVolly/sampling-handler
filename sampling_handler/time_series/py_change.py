@@ -236,6 +236,7 @@ def py_change(df, config_dict):
     if bfast:
         start = time.time()
         logger.info('Running the B-FAST algorithm on current batch of points.')
+
         results = run_in_parallel(
             bfast_monitor, bfast_args, workers, 'processes'
         )

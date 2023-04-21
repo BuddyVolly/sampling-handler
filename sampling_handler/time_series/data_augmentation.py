@@ -5,6 +5,7 @@ import time
 
 import ee
 import pandas as pd
+import numpy as np
 
 from .py_change import py_change
 from .ccdc import get_ccdc
@@ -77,6 +78,11 @@ class DataAugmentation(Esbae):
         self.land_trendr = conf['da_params']['land_trendr']
         self.global_products = conf['da_params']['global_products']
 
+        # get parallelization options
+        self.py_workers = conf['da_params']['py_workers']
+        self.ee_workers = conf['da_params']['ee_workers']
+        self.file_accumulation = conf['da_params']['file_accumulation']
+
     def augment(self):
 
         # update config_dict
@@ -94,6 +100,10 @@ class DataAugmentation(Esbae):
         self.config_dict['da_params']['ccdc'] = self.ccdc
         self.config_dict['da_params']['land_trendr'] = self.land_trendr
         self.config_dict['da_params']['global_products'] = self.global_products
+
+        self.config_dict['da_params']['py_workers'] = self.py_workers
+        self.config_dict['da_params']['ee_workers'] = self.ee_workers
+        self.config_dict['da_params']['file_accumulation']= self.file_accumulation
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
@@ -212,9 +222,7 @@ def change_routine(gdf, config_dict, samples=None):
 
 def run_change(config_dict, satellite):
 
-    logger.info(f'Initializing change routine...')
-    start = time.time()
-
+    logger.info('Initializing data augmentation routine...')
     # TODO do some check
     samples = ee.FeatureCollection(
         config_dict['design_params']['ee_samples_fc']
@@ -222,47 +230,32 @@ def run_change(config_dict, satellite):
 
     # consists of TimeSeries and satellite
     ts_dir = Path(config_dict['ts_params']['outdir']).joinpath(satellite)
+    # get number of batches from TS extraction (i.e. every 25000)
+    batches = np.unique([file.name.split('_')[0] for file in ts_dir.glob('*geojson')])
+    # outdir
     outdir = Path(config_dict['da_params']['outdir']).joinpath(satellite)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # get all input files
-    files = list(ts_dir.glob('*geojson'))
-    p, j, to_concat = 0, 0, []
-    for i, file in enumerate(files):
+    for batch in batches:
+        start = time.time()
+        logging.info(f'Accumulating batch files of {int(batch) + 1}/{len(batches)}...')
+        files = [[str(file), True] for file in ts_dir.glob(f'{batch}_*geojson')]
+        result = py_helpers.run_in_parallel(
+            py_helpers.geojson_to_gdf,
+            files,
+            workers=config_dict['da_params']['py_workers'],
+            parallelization='processes'
+        )
+        cdf = pd.concat(result)
 
-        gdf = py_helpers.geojson_to_gdf(file, convert_dates=True)
-        p += len(gdf)
-        to_concat.append(gdf)
+        logger.info(f'Running the data augmentation routines on {len(cdf)} points...')
+        change_df = change_routine(cdf, config_dict, samples)
 
-        if p > config_dict['da_params']['file_accumulation']:
-            # accumulate files to dataframe until length is reached
-            logger.info(f'Accumulated batch {j+1} of files')
-            # run change routine on accumulated files
-            py_helpers.timer(start)
-            cdf = pd.concat(to_concat)
-            logger.info(f'Starting the change detection on {len(cdf)}')
-            change_df = change_routine(cdf, config_dict, samples)
-            py_helpers.timer(start)
-            logger.info("Writing to output.")
-            py_helpers.gdf_to_geojson(
-                change_df,
-                outdir.joinpath(f'{j}_change.geojson'),
-                convert_dates=True
-            )
-            py_helpers.timer(start)
-            # reset points and list
-            p, to_concat = 0, []
-            j += 1
-
-    # if we do not arrive at the file accumulation number,
-    # or we have a last file to process.
-    if to_concat:
-        logger.info("Running the change detection")
-        change_df = change_routine(pd.concat(to_concat), config_dict, samples)
-        logger.info("Dump dataframe to file.")
+        logger.info('Dump results table to output file...')
         py_helpers.gdf_to_geojson(
             change_df,
-            outdir.joinpath(f'{j}_change.geojson'),
+            outdir.joinpath(f'{batch}_change.geojson'),
             convert_dates=True
         )
-        py_helpers.timer(start)
+        py_helpers.timer(start, f'Batch {int(batch) + 1}/{len(batches)} finished in: ')
+    logger.info('Data augmentation finished...')

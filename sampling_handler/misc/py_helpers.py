@@ -214,3 +214,7 @@ def geojson_to_gdf(infile, convert_dates=False):
         )
 
     return gdf
+
+def read_df(file, convert_dates=True):
+
+    return geojson_to_gdf(file, convert_dates)

@@ -9,6 +9,7 @@ import requests
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from retrying import retry
 
 from ee_preproc import landsat_collection
 from ..misc.ee_helpers import (
@@ -96,15 +97,15 @@ class TimeSeriesExtraction(Esbae):
             logger.info('No time-series data has been extracted yet.')
             return
 
-        if actual_size > len(df.point_id.unique()):
-            missing = actual_size - len(df.point_id.unique())
+        if actual_size > len(df[self.pid].unique()):
+            missing = actual_size - len(df[self.pid].unique())
             logger.info(
                 'Time-series data has been extracted partially. '
                 f'{missing} points missing of a total of {actual_size}'
             )
             return
 
-        if actual_size == len(df.point_id.unique()):
+        if actual_size == len(df[self.pid].unique()):
             logger.info(
                 'Time-series data has been extracted completely. '
                 'Time to move on with the data augmentation notebook.'
@@ -172,7 +173,7 @@ def _structure_ts_data(df, point_id_name, bands):
     ).set_geometry("geometry")
 
 
-#@retry(stop_max_attempt_number=3, wait_random_min=2000, wait_random_max=5000)
+@retry(stop_max_attempt_number=3, wait_random_min=2000, wait_random_max=5000)
 def extract_time_series(image_collection, points, config_dict, identifier=None, export_folder=None):
 
     try:
@@ -207,6 +208,11 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
         ee_bands = ee.List(bands)
         scale = ts_params['scale']
         point_id_name = config_dict['design_params']['pid']
+
+        # features to extract
+        features = bands.copy()
+        features.extend(['imageID', point_id_name])
+
         # create a fc from the points
         # geo_json = points[['point_id', 'geometry']].to_crs('epsg:4326').to_json()
         if not isinstance(points, ee.FeatureCollection):
@@ -253,12 +259,17 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
                 properties = ee.Dictionary.fromLists(ee_bands, pixel_values)
                 return feature.set(properties.combine({"imageID": image.id()}))
 
-            return image.reduceRegions(
-                #collection=points_fc.filter(ee.Filter.isContained(".geo", image.geometry()))
-                collection=points_fc.filterBounds(image.geometry()),
-                reducer=reducer,
-                scale=scale   # 30 for bounds_reduce
-            ).map(pixel_value_nan)
+            return ee.FeatureCollection(
+                image.reduceRegions(
+                    #collection=points_fc.filter(ee.Filter.isContained(".geo", image.geometry()))
+                    collection=points_fc.filterBounds(image.geometry()),
+                    reducer=reducer,
+                    scale=scale   # 30 for bounds_reduce
+                ).map(pixel_value_nan)
+            ).select(
+                propertySelectors=features,
+                retainGeometry=True
+            )
 
         # apply mapping function over landsat collection
         cell_fc = masked_coll.map(map_over_img_coll).flatten().filter(
@@ -276,7 +287,7 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
         # write the FC to a geodataframe
         try:
             point_gdf = gpd.GeoDataFrame.from_features(r.json())
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             logger.warning(
                 f"Point extraction from Earth Engine for chunk nr "
                 f"{identifier.split('_')[1]} failed at resolution "
@@ -380,6 +391,7 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
             asset_id=f"tmp_esbae_table_{gmt}",
             sub_folder=f"tmp_esbae_{gmt}"
         )
+        input_grid = ee.FeatureCollection(input_grid)
 
     return input_grid
 
@@ -436,7 +448,17 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
 
     # check if there is anything to process,
     # and if it is too large, export
-    if to_proc.size().getInfo() > 250:
+    try:
+        proc_size = to_proc.size().getInfo()
+        if proc_size > 250:
+            _, to_proc = _ee_export_table(
+                ee_fc=to_proc,
+                description=f"tmp_esbae_grid_{gmt}",
+                asset_id=f"tmp_esbae_grid_{gmt}",
+                sub_folder=f"tmp_esbae_{gmt}"
+            )
+            to_proc = ee.FeatureCollection(to_proc)
+    except ee.EEException:
         _, to_proc = _ee_export_table(
             ee_fc=to_proc,
             description=f"tmp_esbae_grid_{gmt}",
@@ -548,7 +570,9 @@ def cascaded_extraction_ee(input_grid, config_file):
                 "Checking for points not processed at the current "
                 "aggregation level."
             )
-            sub = _get_missing_points(sub, config_dict)
+            sub = _get_missing_points(
+                sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub
+            )
             if sub == 'completed':
                 break
 
@@ -564,7 +588,7 @@ def cascaded_extraction_ee(input_grid, config_file):
             f"{points_left} not being processed. You can check "
             f"the logfile {log.name} within your results directory."
         )
-        log.rename(Path(config_dict['ts_params']["outdir"].joinpath(log.name)))
+        log.rename(Path(config_dict['ts_params']["outdir"]).joinpath(log.name))
     else:
         logger.info(
             "Extraction of time-series has been finished for all points."

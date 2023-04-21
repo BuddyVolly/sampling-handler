@@ -1,3 +1,4 @@
+import time
 import logging
 
 import ee
@@ -43,9 +44,14 @@ def sample_global_products(df, samples, config_dict):
 
     if config['esa_lc20']:
 
-        ## ESA WorldCover 2020
+        # ESA WorldCover 2020
         dataset = dataset.addBands(
-            ee.Image('ESA/WorldCover/v100/2020').rename('esa_lc20')
+            ee.ImageCollection("ESA/WorldCover/v100").first().rename('esa_lc20')
+        )
+
+        # ESA WorldCover 2021
+        dataset = dataset.addBands(
+            ee.ImageCollection("ESA/WorldCover/v200").first().rename('esa_lc21')
         )
 
     ## Tropical Moist Forest - JRC 2021
@@ -122,14 +128,20 @@ def sample_global_products(df, samples, config_dict):
 
     if config['esri_lc']:
 
-        esri_lulc2020 = (
+        esri_lulc = (
             ee.ImageCollection(
-                'projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m'
+                'projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS'
             )
             .filterBounds(cell)
             .mosaic()
         )
-        dataset = dataset.addBands(esri_lulc2020.rename('esri_lc20'))
+
+        for year in range(2017, 2022, 1):
+            year = str(year)
+            dataset = dataset.addBands(
+                esri_lulc.filterDate(
+                    f'{year}-01-01', f'{year}-12-31').rename(f'esri_lc{year[:2]}')
+                )
 
     if config['lang_tree_height']:
 
@@ -234,6 +246,7 @@ def sample_global_products(df, samples, config_dict):
 
 def get_global_products(df, samples, config_dict):
 
+    start = time.time()
     logger.info('Extracting global products')
     pid = config_dict['design_params']['pid']
     glbprds_args = []
@@ -241,7 +254,8 @@ def get_global_products(df, samples, config_dict):
         glbprds_args.append([df.iloc[i:i+25], samples, config_dict])
 
     result = py_helpers.run_in_parallel(
-        sample_global_products, glbprds_args, workers=20
+        sample_global_products, glbprds_args, workers=config_dict['da_params']['ee_workers']
     )
     eedf = pd.concat(result)
+    py_helpers.timer(start, 'Extraction of global products finished in')
     return pd.merge(df, eedf, on=pid)
