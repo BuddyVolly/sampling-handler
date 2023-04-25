@@ -5,8 +5,8 @@
     "aoi_crs": null
   },
   "stats_params": {
-    "start": "2001",
-    "end": "2022",
+    "start": 2001,
+    "end": 2022,
     "tree_cover": 10,
     "mmu": 0.5,
     "target_error": 10,
@@ -47,6 +47,7 @@
       "max_cc": 100
     },
     "scale": 70,
+    "bounds_reduce": false,
     "ee_workers": 20,
     "max_points_per_chunk": 100,
     "grid_size_levels": [0.25, 0.125, 0.075]

@@ -24,24 +24,29 @@ def get_segments(ccdc_asset, mask_1d):
     segment_1d = ccdc_asset.select(bands_1d).arrayMask(mask_1d)
     mask_2d = mask_1d.arrayReshape(ee.Image(ee.Array([-1, 1])), 2)
     segment_2d = ccdc_asset.select(bands_2d).arrayMask(mask_2d)
-    return segment_1d.addBands(segment_2d)
+    has_segment = segment_1d.select(0).arrayLength(0).gt(0)
+    return segment_1d.addBands(segment_2d).updateMask(has_segment)
 
 
 def get_segment(ccdc_asset, mask_1d):
     """ """
     bands_2d = ccdc_asset.select(".*_coefs").bandNames()
     bands_1d = ccdc_asset.bandNames().removeAll(bands_2d)
-    segment_1d = ccdc_asset.select(bands_1d).arrayMask(mask_1d).arrayGet([0])
+    segment_1d = ccdc_asset.select(bands_1d).arrayMask(mask_1d)
+    segment_1d = segment_1d.updateMask(segment_1d.arrayLength(0)).arrayGet([0])
     mask_2d = mask_1d.arrayReshape(ee.Image(ee.Array([-1, 1])), 2)
     segment_2d = ccdc_asset.select(bands_2d).arrayMask(mask_2d).arrayProject([1])
-    return segment_1d.addBands(segment_2d)
+    return segment_1d.addBands(segment_2d).updateMask(segment_1d.select(0).mask())
 
 
 def transform_date(date):
     """ """
-    date = pd.to_datetime(dt.fromtimestamp(date / 1000.0))
-    dates_float = date.year + np.round(date.dayofyear / 365, 3)
-    dates_float = 0 if dates_float == "1970.003" else dates_float
+    if date:
+        date = pd.to_datetime(dt.fromtimestamp(date / 1000.0))
+        dates_float = date.year + np.round(date.dayofyear / 365, 3)
+        dates_float = 0 if dates_float == 1970.003 else dates_float
+    else:
+        dates_float = 0.0
     return dates_float
 
 
@@ -96,8 +101,7 @@ def run_ccdc(df, samples, config_dict):
             tsee.size())
 
     points = samples.filter(ee.Filter.inList(point_id_name, points))
-    # print(points.getInfo())
-    img_coll = ee.ImageCollection.fromImages(img_coll)
+    img_coll = ee.ImageCollection.fromImages(img_coll) #.filterDate('1970-01-01', end_monitor)
 
     # add collection and remove run from parameter dict
     params = ccdc_params.copy()
@@ -109,14 +113,12 @@ def run_ccdc(df, samples, config_dict):
 
     # extract info
     # create array of start of monitoring in shape of tEnd
-    tEnd = ccdc.select("tEnd")
-    mon_date_array_start = tEnd.multiply(0).add(
-        ee.Date(start_monitor).millis())
-    mon_date_array_end = tEnd.multiply(0).add(ee.Date(end_monitor).millis())
+    tBreak = ccdc.select("tBreak")
+    mon_date_array_start = tBreak.multiply(0).add(ee.Date(start_monitor).millis())
+    mon_date_array_end = tBreak.multiply(0).add(ee.Date(end_monitor).millis())
 
     # create the date mask
-    date_mask = tEnd.gte(mon_date_array_start).And(
-        tEnd.lte(mon_date_array_end))
+    date_mask = tBreak.gte(mon_date_array_start).And(tBreak.lte(mon_date_array_end))
 
     # use date mask to mask all of ccdc
     monitoring_ccdc = get_segments(ccdc, date_mask)
@@ -132,25 +134,18 @@ def run_ccdc(df, samples, config_dict):
 
     mask = magnitude.abs().eq(max_abs_magnitude)
     segment = get_segment(monitoring_ccdc, mask)
+    no_change = ee.Image([0, 0]).rename([f'{ts_band}_magnitude', "tBreak"])
     magnitude = ee.Image(
-        segment.select([f'{ts_band}_magnitude', "tBreak", "tEnd"]))
-
-    def pixel_value_nan(feature):
-        pixel_value = ee.List(
-            [feature.get(f'{ts_band}_magnitude'), -9999]).reduce(
-            ee.Reducer.firstNonNull()
-        )
-        return feature.set({f'{ts_band}_magnitude': pixel_value})
+        segment.select([f'{ts_band}_magnitude', "tBreak"])
+    ).unmask(no_change)
 
     sampled_points = magnitude.reduceRegions(**{
         "reducer": ee.Reducer.first(),
         "collection": points,
         "scale": 100,
         "tileScale": 4,
-    }).map(pixel_value_nan).select(
-        propertySelectors=[
-            point_id_name, f'{ts_band}_magnitude', "tBreak", "tEnd"
-        ],
+    }).select(
+        propertySelectors=[point_id_name, f'{ts_band}_magnitude', "tBreak"],
         retainGeometry=False
     )
 

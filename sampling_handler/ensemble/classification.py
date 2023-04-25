@@ -83,15 +83,8 @@ def outlier_rejection(X, y):
     return X[y_pred == 1], y[y_pred == 1]
 
 
-from imblearn.ensemble import BalancedRandomForestClassifier
-from sklearn.impute import SimpleImputer
-from sklearn.ensemble import IsolationForest
-from skopt import BayesSearchCV
-from imblearn import FunctionSampler
-import warnings
-
-
 def outlier_rejection(X, y):
+
     """This will be our function used to resample our dataset."""
     model = IsolationForest(max_samples=100, contamination=0.1)
     model.fit(X)
@@ -162,6 +155,7 @@ def get_stats(row, band, start, end):
     ts = np.array(row.ts[band])[idx]
 
     return np.nanmean(ts), np.nanstd(ts)
+
 
 def add_yearly_reflectance(df, start, end):
 

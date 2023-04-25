@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from pathlib import Path
+import shutil
 
 import ee
 import geojson
@@ -28,7 +29,17 @@ LOGFILE = setup_logger(logger)
 
 class TimeSeriesExtraction(Esbae):
 
-    def __init__(self, project_name, ts_start, ts_end, satellite, scale, bands, aoi=None):
+    def __init__(
+            self,
+            project_name,
+            ts_start,
+            ts_end,
+            satellite,
+            scale,
+            bounds_reduce,
+            bands,
+            aoi=None
+    ):
 
         # ------------------------------------------
         # 1 Get Generic class attributes
@@ -47,6 +58,7 @@ class TimeSeriesExtraction(Esbae):
         self.end = ts_end
         self.satellite = satellite
         self.scale = scale
+        self.bounds_reduce = bounds_reduce
         self.bands = bands
 
         # get params from befre steps (or default values)
@@ -69,9 +81,15 @@ class TimeSeriesExtraction(Esbae):
         self.config_dict['ts_params']['ts_start'] = self.start
         self.config_dict['ts_params']['ts_end'] = self.end
         self.config_dict['ts_params']['scale'] = self.scale
+        self.config_dict['ts_params']['bounds_reduce'] = self.bounds_reduce
         self.config_dict['ts_params']['ee_workers'] = self.workers
         self.config_dict['ts_params']['max_points_per_chunk'] = self.max_points_per_chunk
         self.config_dict['ts_params']['grid_size_levels'] = self.grid_size_levels
+        self.config_dict['design_params']['pid'] = self.pid
+        self.config_dict['design_params']['ee_samples_fc'] = self.sample_asset
+
+        # check if relevant value changed, and clean up out folder in case, to keep output data consistent
+        check_config_changed(self.config_dict)
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
@@ -208,6 +226,7 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
         ee_bands = ee.List(bands)
         scale = ts_params['scale']
         point_id_name = config_dict['design_params']['pid']
+        bounds_reduce = ts_params['bounds_reduce']
 
         # features to extract
         features = bands.copy()
@@ -232,19 +251,17 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
         else:
             points_fc = points
 
-        #if bounds_reduce:
-        #    points_fc = points_fc.map(
-        #        lambda x: ee.Feature(
-        #            x.geometry().buffer(scale/2).bounds()
-        #        ).copyProperties(x, x.propertyNames())
-        #    )
+        if bounds_reduce:
+            # we create a bounding buffer around the point for later reduce regions
+            points_fc = points_fc.map(
+                lambda x: ee.Feature(
+                    x.geometry().buffer(scale/2).bounds()
+                ).copyProperties(x, x.propertyNames())
+            )
 
         # mask lsat collection for grid cell
         cell = points_fc.geometry().convexHull(100)
         masked_coll = image_collection.filterBounds(cell)
-        reducer = (
-            ee.Reducer.first().setOutputs(bands) if len(bands) == 1 else ee.Reducer.first()
-        )
 
         # mapping function to extract time-series from each image
         def map_over_img_coll(image):
@@ -259,22 +276,39 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
                 properties = ee.Dictionary.fromLists(ee_bands, pixel_values)
                 return feature.set(properties.combine({"imageID": image.id()}))
 
-            return ee.FeatureCollection(
-                image.reduceRegions(
-                    #collection=points_fc.filter(ee.Filter.isContained(".geo", image.geometry()))
-                    collection=points_fc.filterBounds(image.geometry()),
-                    reducer=reducer,
-                    scale=scale   # 30 for bounds_reduce
-                ).map(pixel_value_nan)
-            ).select(
-                propertySelectors=features,
-                retainGeometry=True
+            if bounds_reduce:
+                reducer = (
+                    ee.Reducer.mean().setOutputs(bands) if len(bands) == 1 else ee.Reducer.mean()
+                )
+                sampled_ts = ee.FeatureCollection(
+                    image.reduceRegions(
+                        collection=points_fc.filter(ee.Filter.isContained(".geo", image.geometry())),
+                        reducer=reducer,
+                        scale=30
+                    ))
+                # TODO do we want the centroid? (this doesn't work yet)
+                # .map(lambda feature: ee.Feature(feature.geometry().centroid(), feature.toDictionary()))
+
+            else:
+                reducer = (
+                    ee.Reducer.first().setOutputs(bands) if len(bands) == 1 else ee.Reducer.first()
+                )
+                sampled_ts = ee.FeatureCollection(
+                    image.reduceRegions(
+                        collection=points_fc.filterBounds(image.geometry()),
+                        reducer=reducer,
+                        scale=scale
+                    ))
+
+            return sampled_ts.map(pixel_value_nan).select(
+                    propertySelectors=features,
+                    retainGeometry=True
             )
 
         # apply mapping function over landsat collection
         cell_fc = masked_coll.map(map_over_img_coll).flatten().filter(
             ee.Filter.neq(bands[0], -9999)
-            )
+        )
 
         # and get the url of the data
         url = cell_fc.getDownloadUrl("geojson")
@@ -517,12 +551,9 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
     return return_code
 
 
-def cascaded_extraction_ee(input_grid, config_file):
+def cascaded_extraction_ee(input_grid, config_dict):
 
-    # read config file
-    with open(config_file) as f:
-        config_dict = json.load(f)
-
+    # get chunk levels
     chunk_sizes = config_dict['ts_params']['grid_size_levels']
 
     # sort by point id
@@ -588,7 +619,7 @@ def cascaded_extraction_ee(input_grid, config_file):
             f"{points_left} not being processed. You can check "
             f"the logfile {log.name} within your results directory."
         )
-        log.rename(Path(config_dict['ts_params']["outdir"]).joinpath(log.name))
+        shutil.copy(log, Path(config_dict['ts_params']["outdir"]).joinpath(log.name))
     else:
         logger.info(
             "Extraction of time-series has been finished for all points."
@@ -602,15 +633,12 @@ def cascaded_extraction_ee(input_grid, config_file):
     cleanup_tmp_esbae()
 
 
-def extract(input_grid, config_dict, start_res=8, end_res=13):
+def _check_config_changed(config_dict):
 
-    # create output directory
+    # read config file is existing, so we can compare to new one
     project_dir = Path(config_dict['project_params']['project_dir'])
     sat = config_dict['ts_params']['satellite']
     out_dir = Path(config_dict['ts_params']['outdir']).joinpath(sat)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # read config file is existing, so we can compare to new one
     config_file = project_dir.joinpath('config.json')
     if config_file.exists():
         with open(config_file) as f:
@@ -622,7 +650,7 @@ def extract(input_grid, config_dict, start_res=8, end_res=13):
 
         # define keys that can be changed
         keys_list = [
-            "outdir", "ee_workers", "max_points_per_chunk", "grid_size_levels"
+            'outdir', 'ee_workers', 'max_points_per_chunk', 'grid_size_levels'
         ]
         # remove those keys from both configs
         [new_ts_params.pop(key) for key in keys_list]
@@ -630,25 +658,29 @@ def extract(input_grid, config_dict, start_res=8, end_res=13):
 
         if not new_ts_params == old_ts_params:
             config_change = input(
-                "Your processing parameters in your config file changed. "
-                "If you continue, all of your already processed files will be "
-                "deleted. Are you sure you want to continue? (yes/no)"
+                'Your processing parameters in your config file changed. '
+                'If you continue, all of your already processed files will be '
+                'deleted. Are you sure you want to continue? (yes/no)'
             )
-            if config_change == "no":
+            if config_change == 'no':
                 return
-            elif config_change == "yes":
-                logger.info("Cleaning up results folder.")
-                [file.unlink() for file in out_dir.glob("*geojson")]
+            elif config_change == 'yes':
+                logger.info('Cleaning up results folder.')
+                [file.unlink() for file in out_dir.glob('*geojson')]
+                return
             else:
                 raise ValueError(
-                    "Answer is not recognized, should be \"yes\" or \"no\""
+                    'Answer is not recognized, should be \'yes\' or \'no\''
                 )
 
-    with open(config_file, "w") as f:
-        json.dump(config_dict, f)
+    return
 
+
+def extract(input_grid, config_dict):
+
+    _check_config_changed(config_dict)
     if isinstance(input_grid, ee.FeatureCollection):
-        cascaded_extraction_ee(input_grid, config_file)
+        cascaded_extraction_ee(input_grid, config_dict)
 
     # elif isinstance(input_grid, gpd.geodataframe.GeoDataFrame):
     #    cascaded_extraction(input_grid, config_file, start_res, end_res)

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 import time
+import json
 
 import ee
 import pandas as pd
@@ -81,7 +82,6 @@ class DataAugmentation(Esbae):
         # get parallelization options
         self.py_workers = conf['da_params']['py_workers']
         self.ee_workers = conf['da_params']['ee_workers']
-        self.file_accumulation = conf['da_params']['file_accumulation']
 
     def augment(self):
 
@@ -103,7 +103,9 @@ class DataAugmentation(Esbae):
 
         self.config_dict['da_params']['py_workers'] = self.py_workers
         self.config_dict['da_params']['ee_workers'] = self.ee_workers
-        self.config_dict['da_params']['file_accumulation']= self.file_accumulation
+
+        # check for relevant chagen that might necessitate the restart from scratch
+        _check_config_changed(self.config_dict, self.satellite)
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
@@ -111,49 +113,83 @@ class DataAugmentation(Esbae):
         run_change(self.config_dict, self.satellite)
 
 
-async def async_py_change(gdf, config_dict):
-    return py_change(gdf, config_dict)
+def ee_change(gdf, samples, config_dict):
 
+    bands = config_dict['ts_params']['lsat_params']['bands']
+    da_params = config_dict['da_params']
 
-async def async_ccdc(gdf, samples, config_dict):
-    return get_ccdc(gdf, samples, config_dict)
+    ccdc = da_params['ccdc']['run']
+    # landtrendr = da_params['land_trendr']['run']
+    glb_prd = da_params['global_products']['run']
+    ts_band = da_params['ts_band']
 
+    if ccdc and samples:
 
-async def merge_data(gdf, config_dict, samples):
-    py_gdf = await async_py_change(gdf, config_dict)
-    ee_gdf = await async_ccdc(gdf, samples, config_dict)
-    results = await asyncio.gather(py_gdf, ee_gdf)
-    return results
+        # check that we have all bands
+        check_bpb = all(
+            item in bands for item in
+            da_params['ccdc']['breakpointBands']
+        )
+
+        if not check_bpb:
+            logger.warning(
+                "Selected breakpoint bands for CCDC are not available. "
+                "Using the time-series band as breakpoint band."
+            )
+            da_params['ccdc']['breakpointBands'] = [ts_band]
+
+        if "tmaskBands" in da_params['ccdc']:
+            check_tmask = all(
+                item in bands for item in
+                da_params['ccdc']['tmaskBands']
+            )
+            if not check_tmask:
+                logger.warning(
+                    'Selected tMask bands for CCDC are not available. '
+                    'Not using tMask bands.'
+                )
+                da_params['ccdc']['tmaskBands'] = False
+
+        # run ccdc and add to dataframe
+        gdf = get_ccdc(gdf, samples, config_dict)
+
+    # TODO gdf = land_trendr(gdf, samples, config_dict) # if landtrendr else gdf
+    # extract global products in case it's selected
+    gdf = get_global_products(gdf, samples, config_dict) if glb_prd else gdf
+    return gdf
 
 
 def change_routine(gdf, config_dict, samples=None):
 
     # get algorithms from config file
     bands = config_dict['ts_params']['lsat_params']['bands']
-    cd_params = config_dict['da_params']
-    ccdc = cd_params['ccdc']['run']
-    # landtrendr = cd_params['land_trendr']['run']
-    glb_prd = cd_params['global_products']['run']
-    bfast = cd_params['bfast']['run']
-    cusum = cd_params['cusum']['run']
-    bs_slope = cd_params['bs_slope']['run']
-    ts_metrics = cd_params['ts_metrics']['run']
-    jrc_nrt = cd_params['jrc_nrt']['run']
-    ts_band = cd_params['ts_band']
+    pid = config_dict['design_params']['pid']
+    da_params = config_dict['da_params']
+    ccdc = da_params['ccdc']['run']
+    land_trendr = da_params['land_trendr']['run']
+    glb_prd = da_params['global_products']['run']
+    bfast = da_params['bfast']['run']
+    cusum = da_params['cusum']['run']
+    bs_slope = da_params['bs_slope']['run']
+    ts_metrics = da_params['ts_metrics']['run']
+    jrc_nrt = da_params['jrc_nrt']['run']
+    ts_band = da_params['ts_band']
 
     start = time.time()
     logger.info('Cleaning the time-series from outliers.')
     gdf = (
         ts_helpers.remove_outliers(gdf, bands, ts_band)
-        if cd_params['outlier_removal'] else gdf
+        if da_params['outlier_removal'] else gdf
     )
     py_helpers.timer(start, "Outlier removal finished in")
 
+    start = time.time()
     logger.info('Smoothing the time-series with a rolling mean.')
-    gdf = ts_helpers.smooth_ts(gdf, bands) if cd_params['smooth_ts'] else gdf
+    gdf = ts_helpers.smooth_ts(gdf, bands) if da_params['smooth_ts'] else gdf
     py_helpers.timer(start, 'Time-series smoothing finished in')
     # we cut ts data to actual change period only
 
+    start = time.time()
     logger.info(
         'Creating a subset of the time-series according '
         'to the analysis period.'
@@ -169,64 +205,99 @@ def change_routine(gdf, config_dict, samples=None):
         result_type="expand",
     )
     py_helpers.timer(start, 'Time-series subsetting finished in')
-    # -----------
-    # ASYNC
-    # if any([bfast, cusum, bs_slope, ts_metrics, jrc_nrt])\
-    #        and any([ccdc, glb_prd, landtrendr]):
 
-    #    loop = asyncio.get_event_loop()
-    #    cdfs = loop.run_until_complete(merge_data(gdf, config_dict, samples))
-    #    loop.close()
-    #    print(cdfs)
-    #    gdf = pd.merge(cdfs[0], cdfs[1], on=pid)
-
+    py_thread, ee_thread = None, None
+    ee_gdf = gdf.copy()
     if any([bfast, cusum, bs_slope, ts_metrics, jrc_nrt]):
-        gdf = py_change(gdf, config_dict)
-
-    if ccdc and samples:
-
-        # check that we have all bands
-        check_bpb = all(
-            item in bands for item in
-            cd_params['ccdc']['breakpointBands']
+        py_thread = py_helpers.ThreadWithReturnValue(
+            target=py_change, args=(gdf, config_dict)
         )
+        py_thread.start()
+        # gdf = py_change(gdf, config_dict)
 
-        if not check_bpb:
-            logger.warning(
-                "Selected breakpoint bands for CCDC are not available. "
-                "Using the time-series band as breakpoint band."
-            )
-            cd_params['ccdc']['breakpointBands'] = [ts_band]
+    if any([ccdc, land_trendr, glb_prd]) and samples:
+        ee_thread = py_helpers.ThreadWithReturnValue(
+            target=ee_change, args=(ee_gdf, samples, config_dict)
+        )
+        ee_thread.start()
 
-        if "tmaskBands" in cd_params['ccdc']:
-            check_tmask = all(
-                item in bands for item in
-                cd_params['ccdc']['tmaskBands']
-            )
-            if not check_tmask:
-                logger.warning(
-                    'Selected tMask bands for CCDC are not available. '
-                    'Not using tMask bands.'
-                )
-                cd_params['ccdc']['tmaskBands'] = False
+    if py_thread:
+        py_gdf = py_thread.join()
+        if not ee_thread:
+            return py_gdf
+    if ee_thread:
+        ee_gdf = ee_thread.join()
+        if not py_thread:
+            return ee_gdf
 
-        # run ccdc and add to dataframe
-        gdf = get_ccdc(gdf, samples, config_dict)
-
-    # gdf = land_trendr(gdf, samples, config_dict) # if landtrendr else gdf
-    # extract global products in case it's selected
-    gdf = get_global_products(gdf, samples, config_dict) if glb_prd else gdf
-
+    gdf = pd.merge(
+        py_gdf,
+        ee_gdf.drop(['ts', 'dates', 'geometry', 'images'], axis=1),
+        on=pid
+    )
     return gdf
+
+
+def _check_config_changed(config_dict, satellite):
+
+    # read config file is existing, so we can compare to new one
+    project_dir = Path(config_dict['project_params']['project_dir'])
+    out_dir = Path(config_dict['da_params']['outdir']).joinpath(satellite)
+    config_file = project_dir.joinpath('config.json')
+    if config_file.exists():
+        with open(config_file) as f:
+            old_config_dict = json.load(f)
+
+        # create a copy of the new config for comparison
+        new_ts_params = config_dict['da_params'].copy()
+        old_ts_params = old_config_dict['da_params'].copy()
+
+        # define keys that can be changed
+        keys_list = [
+            'outdir', 'ee_workers', 'py_workers'
+        ]
+        # remove those keys from both configs
+        [new_ts_params.pop(key) for key in keys_list]
+        [old_ts_params.pop(key) for key in keys_list]
+
+        if not new_ts_params == old_ts_params:
+            config_change = input(
+                'Your processing parameters in your config file changed. '
+                'If you continue, all of your already processed files will be '
+                'deleted. Are you sure you want to continue? (yes/no)'
+            )
+            if config_change == 'no':
+                return
+            elif config_change == 'yes':
+                logger.info('Cleaning up results folder.')
+                [file.unlink() for file in out_dir.glob('*geojson')]
+                return
+            else:
+                raise ValueError(
+                    'Answer is not recognized, should be \'yes\' or \'no\''
+                )
+
+    return
 
 
 def run_change(config_dict, satellite):
 
     logger.info('Initializing data augmentation routine...')
-    # TODO do some check
+
+    if not config_dict['design_params']['ee_samples_fc']:
+        raise ValueError(
+            'No point feature collection defined. '
+            'You need to run notebook 2 or set one manually in '
+            'your configuration dictionary using '
+            'the key [\'design_params\'][\'ee_samples_fc\']'
+        )
+
     samples = ee.FeatureCollection(
         config_dict['design_params']['ee_samples_fc']
     )
+
+    # check if samples are there
+    _ = samples.limit(1).size().getInfo()
 
     # consists of TimeSeries and satellite
     ts_dir = Path(config_dict['ts_params']['outdir']).joinpath(satellite)
@@ -237,8 +308,16 @@ def run_change(config_dict, satellite):
     outdir.mkdir(parents=True, exist_ok=True)
 
     for batch in batches:
+
+        outfile = outdir.joinpath(f'{batch}_change.geojson')
+        if outfile.exists():
+            logger.info(
+                f'Batch {int(batch)}/{len(batches)} has been already processed. Going on with next one.'
+            )
+            continue
+
         start = time.time()
-        logging.info(f'Accumulating batch files of {int(batch) + 1}/{len(batches)}...')
+        logger.info(f'Accumulating batch files of {int(batch)}/{len(batches)}...')
         files = [[str(file), True] for file in ts_dir.glob(f'{batch}_*geojson')]
         result = py_helpers.run_in_parallel(
             py_helpers.geojson_to_gdf,
@@ -252,10 +331,7 @@ def run_change(config_dict, satellite):
         change_df = change_routine(cdf, config_dict, samples)
 
         logger.info('Dump results table to output file...')
-        py_helpers.gdf_to_geojson(
-            change_df,
-            outdir.joinpath(f'{batch}_change.geojson'),
-            convert_dates=True
-        )
+        py_helpers.gdf_to_geojson(change_df, outfile, convert_dates=True)
         py_helpers.timer(start, f'Batch {int(batch) + 1}/{len(batches)} finished in: ')
+
     logger.info('Data augmentation finished...')

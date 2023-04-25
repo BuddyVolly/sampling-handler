@@ -216,11 +216,6 @@ def py_change(df, config_dict):
                 [row.ts_mon[ts_band], dates_float, row[pid], cusum_bootstraps]
             )
 
-        if ts_metrics:
-            ts_args.append(
-                [row.ts_mon[ts_band], row[pid], outlier_removal, z_threshhold]
-            )
-
         if bs_slope:
             bs_args.append(
                 [row.ts_mon[ts_band], dates_float, bs_bootstraps, row[pid]]
@@ -263,12 +258,16 @@ def py_change(df, config_dict):
         timer(start, 'CuSum finished in')
 
     if ts_metrics:
-        start = time.time()
+
         logger.info('Running the time-scan on current batch of points.')
         for band in ts_metrics_params['bands']:
-            ts_args.append(
-                [row.ts_mon[ts_band], row[pid], outlier_removal, z_threshhold]
-            )
+            start = time.time()
+            ts_args = []
+            for i, row in df.iterrows():
+                ts_args.append(
+                    [row.ts_mon[ts_band], row[pid], outlier_removal, z_threshhold]
+                )
+
             results = run_in_parallel(timescan, ts_args, workers)
             d = {i: result for i, result in enumerate(results)}
             tscan_df = pd.DataFrame.from_dict(d, orient='index')
@@ -306,7 +305,6 @@ def py_change(df, config_dict):
         ]
         df = pd.merge(df, nrt_df, on=pid)
         timer(start, 'JRC NRT algorithms finished in')
-
     # drop unnecessary columns
     cols_to_drop = ['dates_mon', 'ts_mon']
     df.drop([col for col in cols_to_drop if col in df], axis=1, inplace=True)

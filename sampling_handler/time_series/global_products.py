@@ -133,15 +133,14 @@ def sample_global_products(df, samples, config_dict):
                 'projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS'
             )
             .filterBounds(cell)
-            .mosaic()
         )
 
         for year in range(2017, 2022, 1):
             year = str(year)
             dataset = dataset.addBands(
                 esri_lulc.filterDate(
-                    f'{year}-01-01', f'{year}-12-31').rename(f'esri_lc{year[:2]}')
-                )
+                    f'{year}-01-01', f'{year}-12-31')
+                .mosaic().rename(f'esri_lc{str(year)[:2]}'))
 
     if config['lang_tree_height']:
 
