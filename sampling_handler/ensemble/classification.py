@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from imblearn.ensemble import BalancedRandomForestClassifier
 from imblearn import FunctionSampler
@@ -73,14 +74,6 @@ def get_stats(row, band, start, end):
     ts = np.array(row.ts[band])[idx]
 
     return np.nanmean(ts), np.nanstd(ts)
-
-
-def outlier_rejection(X, y):
-    """This will be our function used to resample our dataset."""
-    model = IsolationForest(max_samples=100, contamination=0.4, random_state=rng)
-    model.fit(X)
-    y_pred = model.predict(X)
-    return X[y_pred == 1], y[y_pred == 1]
 
 
 def outlier_rejection(X, y):
