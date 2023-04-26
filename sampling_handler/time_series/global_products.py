@@ -140,7 +140,7 @@ def sample_global_products(df, samples, config_dict):
             dataset = dataset.addBands(
                 esri_lulc.filterDate(
                     f'{year}-01-01', f'{year}-12-31')
-                .mosaic().rename(f'esri_lc{str(year)[:2]}'))
+                .mosaic().rename(f'esri_lc{str(year)[2:]}'))
 
     if config['lang_tree_height']:
 
