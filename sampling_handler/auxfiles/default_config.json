@@ -37,7 +37,6 @@
     "ts_start": "1990-01-01",
     "ts_end": "2030-01-01",
     "satellite": "Landsat",
-    "bands": ["green", "red", "nir", "swir1", "swir2", "ndfi"],
     "lsat_params": {
       "l9": true,
       "l8": true,
