@@ -30,7 +30,7 @@
     },
     "pid": "point_id",
     "ee_samples_fc": null,
-    "ee_hex_fc": null,
+    "ee_grid_fc": null,
     "outdir": null
   },
   "ts_params": {

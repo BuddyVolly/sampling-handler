@@ -90,7 +90,7 @@ def _check_value(key, value, reference_dict):
             return
         else:
             raise ValueError(
-                f'Invalid valid encountered in {key}. '
+                f'Invalid value encountered in {key}. '
                 f'Value needs to be in the range of {choices["min"]} to {choices["max"]}'
             )
 
@@ -101,7 +101,7 @@ def _check_value(key, value, reference_dict):
                 return
             else:
                 raise ValueError(
-                    f'Invalid valid encountered in {key}. '
+                    f'Invalid value encountered in {key}. '
                     f'Value needs to be in the range of {choices["min"]} to {choices["max"]}'
                 )
 
@@ -110,8 +110,8 @@ def _check_value(key, value, reference_dict):
                 return
             else:
                 raise ValueError(
-                    f'Invalid valid encountered in {key}. '
-                    f'Value must be in the range of {min(choices)} and {max(choices) - 1}.'
+                    f'Invalid value encountered in {key}. '
+                    f'Value must be in the range of {min(choices)} and {max(choices)}.'
                 )
 
     if type(value) == list:
