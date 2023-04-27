@@ -5,8 +5,8 @@ import ee
 import requests
 import pandas as pd
 from retrying import retry
-from ..misc import py_helpers
-from ..misc.settings import setup_logger
+from sampling_handler.misc import py_helpers
+from sampling_handler.misc.settings import setup_logger
 
 
 # Create a logger object

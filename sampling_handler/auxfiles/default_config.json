@@ -15,7 +15,8 @@
     "spacings": [1000, 2000, 4000],
     "scales": [70],
     "runs": 10,
-    "random_seed": 42
+    "random_seed": 42,
+    "outdir": null
   },
   "design_params": {
     "sampling_strategy": "centroid",
@@ -29,7 +30,8 @@
     },
     "pid": "point_id",
     "ee_samples_fc": null,
-    "ee_hex_fc": null
+    "ee_hex_fc": null,
+    "outdir": null
   },
   "ts_params": {
     "ts_start": "1990-01-01",
@@ -50,7 +52,8 @@
     "bounds_reduce": false,
     "ee_workers": 20,
     "max_points_per_chunk": 100,
-    "grid_size_levels": [0.25, 0.125, 0.075]
+    "grid_size_levels": [0.25, 0.125, 0.075],
+    "outdir": null
   },
   "da_params": {
     "start_calibration": "2010-01-01",
@@ -124,6 +127,7 @@
       "dynamic_world_class_mode": true
     },
     "py_workers": 50,
-    "ee_workers": 20
+    "ee_workers": 20,
+    "outdir": null
   }
 }

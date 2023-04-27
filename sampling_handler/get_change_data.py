@@ -13,7 +13,7 @@ from .ee.ccdc import run_ccdc
 from .ee.landtrendr import run_landtrendr
 from .ee.global_products import sample_global_products_cell
 
-from .time_series.cusum import run_cusum_deforest
+from sampling_handler.data_augmentation.cusum import run_cusum_deforest
 from .time_series.bfast_wrapper import run_bfast_monitor
 from .time_series.bootstrap_slope import run_bs_slope
 from .time_series.timescan import run_timescan_metrics

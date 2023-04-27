@@ -1,10 +1,72 @@
+import warnings as _warnings
+_original_warn = None
+
+def _warn(message:str, category:str='', stacklevel:int=1, source:str=''): # need hints to work with pytorch
+    pass # In the future, we can implement filters here. For now, just mute everything.
+
+def please():
+    global _original_warn
+    _original_warn = _warnings.warn
+    _warnings.warn = _warn
+
+
+please()
+
+from pathlib import Path
 import warnings
+
 import numpy as np
 from imblearn.ensemble import BalancedRandomForestClassifier
 from imblearn import FunctionSampler
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import IsolationForest
 from skopt import BayesSearchCV
+from ..esbae import Esbae
+
+
+class EnsembelClassification(Esbae):
+
+
+    def __init__(
+            self,
+            project_name,
+            satellite,
+            aoi=None
+    ):
+
+        # ------------------------------------------
+        # 1 Get Generic class attributes
+        super().__init__(project_name, aoi)
+
+        # we need to get the AOI right with the CRS
+        self.aoi = py_helpers.read_any_aoi_to_single_row_gdf(
+            self.aoi, incrs=self.aoi_crs
+        )
+
+        # here is where out files are stored
+        self.out_dir = str(Path(self.project_dir).joinpath('03_Timeseries_Extract'))
+        Path(self.out_dir).mkdir(parents=True, exist_ok=True)
+
+        self.start = ts_start
+        self.end = ts_end
+        self.satellite = satellite
+        self.outlier = False
+        self.bayes_optim = False
+        self.bands = bands
+
+        # get params from befre steps (or default values)
+        conf = self.config_dict
+        self.pid = conf['design_params']['pid']
+        self.sample_asset = conf['design_params']['ee_samples_fc']
+
+        # load default params
+        self.lsat_params = conf['ts_params']['lsat_params']
+        self.workers = conf['ts_params']['ee_workers']
+        self.max_points_per_chunk = conf['ts_params']['max_points_per_chunk']
+        self.grid_size_levels = conf['ts_params']['grid_size_levels']
+
+
+
 
 
 def get_binary_change(row, start_year, end_year, consider_tmf=True, gfc_gain=True):
@@ -88,6 +150,9 @@ def outlier_rejection(X, y):
 def binary_probability_classification(
         df, y, predictors=None, class_prob=1, outlier=True, random=42, bayes=False
 ):
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
 
     warnings.filterwarnings(
         'ignore', 'This import path', FutureWarning

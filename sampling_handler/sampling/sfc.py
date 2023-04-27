@@ -10,7 +10,7 @@ def sfc_subsample(gdf, target_point_size, seed=None):
     """
 
     # Check if all geometries are points
-    is_only_points = all(geom.type == "Point" for geom in gdf.geometry)
+    is_only_points = all(geom.geom_type == "Point" for geom in gdf.geometry)
 
     # Raise an error if not all geometries are points
     if not is_only_points:
