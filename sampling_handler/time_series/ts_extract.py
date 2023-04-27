@@ -89,7 +89,8 @@ class TimeSeriesExtraction(Esbae):
         self.config_dict['design_params']['ee_samples_fc'] = self.sample_asset
 
         # check if relevant value changed, and clean up out folder in case, to keep output data consistent
-        _check_config_changed(self.config_dict)
+        if list(Path(self.out_dir.joinpath(self.satellite)).glob('*geojson')):
+            _check_config_changed(self.config_dict)
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
