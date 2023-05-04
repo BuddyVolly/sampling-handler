@@ -8,7 +8,9 @@ import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import contextily as cx
 from matplotlib import pyplot as plt
+from matplotlib_scalebar.scalebar import ScaleBar
 import shapely
 from shapely.geometry import box, Point
 
@@ -60,6 +62,19 @@ class SampleDesign(Esbae):
 
     def generate_samples(self, upload_to_ee, save_as_ceo=None):
 
+        # update configuration dict and file
+        self.config_dict['design_params']['outdir'] = str(self.out_dir)
+        self.config_dict['design_params']['sampling_strategy'] = self.sampling_strategy
+        self.config_dict['design_params']['grid_shape'] = self.grid_shape
+        self.config_dict['design_params']['grid_size'] = self.squared_grid_size
+        self.config_dict['design_params']['grid_crs'] = self.grid_crs
+        self.config_dict['design_params']['out_crs'] = self.out_crs
+        self.config_dict['design_params']['ee_grid_fc'] = self.ee_grid_fc
+        self.config_dict['design_params']['ee_samples_fc'] = self.ee_points_fc
+        self.config_dict['design_params']['dggrid']['resolution'] = self.dggrid_resolution
+        self.config_dict['design_params']['dggrid']['projection'] = self.dggrid_projection
+        config.update_config_file(self.config_file, self.config_dict)
+
         if self.grid_shape == 'hexagonal':
 
             # create hex grid
@@ -84,43 +99,34 @@ class SampleDesign(Esbae):
             )
 
             cell_name = f'{self.sampling_strategy}_squared_' \
-                           f'{self.dggrid_projection}_{self.dggrid_resolution}'
+                        f'{self.dggrid_projection}_{self.dggrid_resolution}'
             points_name = f'{self.sampling_strategy}_samples_' \
-                            f'{self.dggrid_projection}_{self.dggrid_resolution}'
+                          f'{self.dggrid_projection}_{self.dggrid_resolution}'
 
         # save files
+        logger.info('Grid cells are saved locally.')
         ceo_file = Path(self.out_dir).joinpath(f'{points_name}.csv') if save_as_ceo else None
         py_helpers.save_gdf_locally(
             self.cell_grid, self.out_dir, gpkg=f'{cell_name}.gpkg'
         )
+        logger.info('Point samples are saved locally as GeoPackage and CEO file.')
         py_helpers.save_gdf_locally(
             self.points, self.out_dir, gpkg=f'{points_name}.gpkg', ceo_csv=ceo_file
         )
 
         if upload_to_ee:
-
+            logger.info('Grid cells are being uploaded to GEE. This may take a while...')
             self.ee_grid_fc = ee_helpers.export_to_ee(
                 self.cell_grid, cell_name, self.project_name, 10000
             )
+            logger.info('Point samples are being uploaded to GEE. This may take a while...')
             self.ee_points_fc = ee_helpers.export_to_ee(
                 self.points, points_name, self.project_name
             )
 
-        self.config_dict['design_params']['outdir'] = str(self.out_dir)
-        self.config_dict['design_params']['sampling_strategy'] = self.sampling_strategy
-        self.config_dict['design_params']['grid_shape'] = self.grid_shape
-        self.config_dict['design_params']['grid_size'] = self.squared_grid_size
-        self.config_dict['design_params']['grid_crs'] = self.grid_crs
-        self.config_dict['design_params']['out_crs'] = self.out_crs
-        self.config_dict['design_params']['ee_grid_fc'] = self.ee_grid_fc
-        self.config_dict['design_params']['ee_samples_fc'] = self.ee_points_fc
-        self.config_dict['design_params']['dggrid']['resolution'] = self.dggrid_resolution
-        self.config_dict['design_params']['dggrid']['projection'] = self.dggrid_projection
-        config.update_config_file(self.config_file, self.config_dict)
-
         return self.cell_grid, self.points
 
-    def plot_grid(self, save_figure=True):
+    def plot_samples(self, save_figure=True):
 
         self.plot_figure = plot_samples(self.aoi, self.points, self.cell_grid)
         self.plot_figure.savefig(Path(self.out_dir).joinpath('grid.png'))
@@ -167,7 +173,7 @@ def squared_grid(
     rows = int(np.floor(float(height) / spacing))
 
     # create grid cells
-    logger.info("Creating grid cells.")
+    logger.info("Creating squared grid...")
     i, _list = 1, []
     for column in range(0, columns + 1):
         x = originx + (column * spacing)
@@ -184,7 +190,7 @@ def squared_grid(
     gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=grid_crs)
 
     # add points
-    logger.info("Creating sampling points.")
+    logger.info("Placing samples within grid...")
     if sampling_strategy == "centroid":
         # take centroid
         gdf["sample_points"] = gdf.geometry.centroid
@@ -202,10 +208,10 @@ def squared_grid(
     gdf["geometry"] = gdf["sample_points"]
     point_gdf = gdf.drop(["sample_points"], axis=1)
 
-    logger.info("Remove points outside AOI...")
+    logger.info("Removing points outside AOI...")
     point_gdf = point_gdf[point_gdf.geometry.within(aoi.iloc[0]["geometry"])]
 
-    logger.info(f"Final sampling grid consists of {len(point_gdf)} points.")
+    logger.info(f"Final sampling grid consists of {len(point_gdf)} samples.")
     return grid_gdf.to_crs(out_crs), point_gdf.to_crs(out_crs)
 
 
@@ -354,13 +360,16 @@ def parallel_hexgrid(
     # add point id
     logger.info("Adding a unique point ID...")
     centroids['point_id'] = [i for i in range(len(centroids))]
+
+    logger.info(f"Final sampling design consists of {len(centroids)} samples.")
     return hexs, centroids
 
 
-def plot_samples(aoi, sample_points, grid_cells=None):
+def plot_samples(aoi, sample_points, grid_cells=None, basemap=cx.providers.Esri.WorldImagery):
     """ TO DO DOC"""
 
     fig, ax = plt.subplots(1, 1, figsize=(25, 25))
+
 
     aoi = py_helpers.read_any_aoi_to_single_row_gdf(aoi, sample_points.crs)
     aoi.plot(ax=ax, alpha=0.25)
@@ -369,4 +378,7 @@ def plot_samples(aoi, sample_points, grid_cells=None):
         grid_cells.plot(ax=ax, facecolor="none", edgecolor="black", lw=0.1)
 
     sample_points.plot(ax=ax, facecolor="red", markersize=0.5)
+    cx.add_basemap(ax, crs=aoi.crs.to_string())
+    ax.add_artist(ScaleBar(py_helpers.get_scalebar_distance(sample_points)))
+    ax.set_title('Sample Design')
     return fig

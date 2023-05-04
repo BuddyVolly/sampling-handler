@@ -1,8 +1,16 @@
 import warnings as _warnings
 _original_warn = None
 
-def _warn(message:str, category:str='', stacklevel:int=1, source:str=''): # need hints to work with pytorch
+# We get LOOOOOOTS fo awful warnings from Imblearn
+# Only thing that work to silence the is the following code here
+# (as warnings does not captures warnings from underlying libs)
+
+
+def _warn(
+        message:str, category:str='', stacklevel:int=1, source:str=''
+): # need hints to work with pytorch
     pass # In the future, we can implement filters here. For now, just mute everything.
+
 
 def please():
     global _original_warn
@@ -12,8 +20,10 @@ def please():
 
 please()
 
-from pathlib import Path
+
+import logging
 import warnings
+from pathlib import Path
 
 import numpy as np
 from imblearn.ensemble import BalancedRandomForestClassifier
@@ -22,9 +32,13 @@ from sklearn.impute import SimpleImputer
 from sklearn.ensemble import IsolationForest
 from skopt import BayesSearchCV
 from ..esbae import Esbae
+from ..misc.settings import setup_logger
 
+# Create a logger object
+logger = logging.getLogger(__name__)
+LOGFILE = setup_logger(logger)
 
-class EnsembelClassification(Esbae):
+class EnsembleClassification(Esbae):
 
 
     def __init__(
@@ -44,7 +58,7 @@ class EnsembelClassification(Esbae):
         )
 
         # here is where out files are stored
-        self.out_dir = str(Path(self.project_dir).joinpath('03_Timeseries_Extract'))
+        self.out_dir = str(Path(self.project_dir).joinpath('05b_Supervised_Global'))
         Path(self.out_dir).mkdir(parents=True, exist_ok=True)
 
         self.start = ts_start
@@ -65,9 +79,7 @@ class EnsembelClassification(Esbae):
         self.max_points_per_chunk = conf['ts_params']['max_points_per_chunk']
         self.grid_size_levels = conf['ts_params']['grid_size_levels']
 
-
-
-
+        logger.info('Aggregating ')
 
 def get_binary_change(row, start_year, end_year, consider_tmf=True, gfc_gain=True):
 
@@ -184,10 +196,10 @@ def binary_probability_classification(
     #print(len(y_train[y_train == 0]))
     # model optimization
     parameters = {
-        'n_estimators': [50, 100, 250, 500],
+        'n_estimators': [250, 500],
         'max_depth': [5, 10, 25, 50],
-        'min_samples_split': [2, 5, 10, 25],
-        'min_samples_leaf': [1, 3, 5, 10, 25]
+        'min_samples_split': [5, 10, 25],
+        'min_samples_leaf': [10, 25]
     }
 
     if bayes:

@@ -368,7 +368,7 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
         files = list(out_dir.glob(f'*geojson'))
 
     if len(files) > 0:
-
+        logger.info("Checking for already processed files.")
         tmp_dfs = []
         for file in files:
             with open(file, 'r') as outfile:
@@ -382,7 +382,9 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
 
         if isinstance(input_grid, gpd.geodataframe.GeoDataFrame):
 
-            logger.warning("Points within those file are discarded.")
+            logger.warning(
+                "Points within those file are discarded."
+            )
             # update input_grid and keep only non processed points
             input_grid = input_grid[
                 ~input_grid[pid].isin(tmp_df[pid].to_list())
@@ -398,10 +400,10 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
             )
 
             if input_grid.size().getInfo() > 0:
-                logger.warning(
-                    "These points are discarded and a temporary "
+                logger.info(
+                    "Already processed points are discarded and a temporary "
                     "FeatureCollection including the non-processed points "
-                    "will be uploaded on Earth Engine"
+                    "will be uploaded on Earth Engine."
                 )
                 # export the filtered grid to a new feature collection
                 _, input_grid = _ee_export_table(
@@ -419,7 +421,9 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
                 input_grid = 'completed'
 
     elif upload_sub:
-
+        logger.info(
+            "Uploading current batch of samples as temporary asset to Earth Engine."
+        )
         _, input_grid = _ee_export_table(
             ee_fc=input_grid,
             description=f"tmp_esbae_table_export_{gmt}",
@@ -588,7 +592,6 @@ def cascaded_extraction_ee(input_grid, config_dict):
 
         sub = ee.FeatureCollection(input_grid.toList(25000, i))
         # if already processed files are in the tmp_folder
-        logger.info("Checking for already processed files.")
         sub = _get_missing_points(sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub)
         if sub == 'completed':
             continue

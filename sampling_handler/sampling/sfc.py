@@ -68,4 +68,4 @@ def sfc_subsample(gdf, target_point_size, seed=None):
 
         j += 1
 
-    return gdf.loc[to_include]
+    return gdf.loc[to_include, :]

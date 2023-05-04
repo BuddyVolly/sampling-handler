@@ -12,6 +12,7 @@ import geemap
 import geojson
 import pandas as pd
 import geopandas as gpd
+from shapely.geometry import Point
 
 from .settings import setup_logger
 
@@ -232,6 +233,32 @@ def geojson_to_gdf(infile, convert_dates=False):
 
     return gdf
 
-def read_df(file, convert_dates=True):
 
-    return geojson_to_gdf(file, convert_dates)
+def aggregate_outfiles(directory, convert_dates=False):  # glob all files in the data augmentation output folder
+
+    files = Path(directory).glob('*geojson')
+    # prepare for parallel execution
+    files = [[str(file), convert_dates] for file in files]
+
+    # read files in parallel nad put the in a list
+    result = run_in_parallel(
+        geojson_to_gdf,
+        files,
+        workers=os.cpu_count() * 2,
+        parallelization='processes'
+    )
+
+    # concatenate dataframes from result's list
+    return pd.concat(result)
+
+
+def get_scalebar_distance(samples):
+
+    bounds = samples.geometry.unary_union.bounds
+    p1 = Point(bounds[0], bounds[1])
+    p2 = Point(bounds[0], bounds[1]+1)
+
+    points = gpd.GeoSeries([p1, p2], crs='epsg:4326')
+    points = points.to_crs('EPSG:32662') # Plate Carree
+    distance_meters = points[0].distance(points[1])
+    return distance_meters
