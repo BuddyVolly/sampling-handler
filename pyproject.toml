@@ -67,7 +67,7 @@ test = ["pytest", "pytest-sugar", "pytest-cov", "pytest-deadfixtures"]
 doc = ["sphinx", "pydata-sphinx-theme", "sphinx-copybutton", "sphinx-design", "sphinx-icon", "sphinx-btn"]
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 license-files = ["LICENSE.txt"]
 
 [tool.setuptools.packages.find]
