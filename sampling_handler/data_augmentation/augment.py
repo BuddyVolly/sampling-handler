@@ -104,7 +104,9 @@ class DataAugmentation(Esbae):
         self.config_dict['da_params']['ee_workers'] = self.ee_workers
 
         # check for relevant chagen that might necessitate the restart from scratch
-        _check_config_changed(self.config_dict, self.satellite)
+        # check if relevant value changed, and clean up out folder in case, to keep output data consistent
+        if list(Path(self.out_dir).joinpath(self.satellite).glob('*geojson')):
+            _check_config_changed(self.config_dict, self.satellite)
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)

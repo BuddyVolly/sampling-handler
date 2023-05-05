@@ -370,7 +370,6 @@ def plot_samples(aoi, sample_points, grid_cells=None, basemap=cx.providers.Esri.
 
     fig, ax = plt.subplots(1, 1, figsize=(25, 25))
 
-
     aoi = py_helpers.read_any_aoi_to_single_row_gdf(aoi, sample_points.crs)
     aoi.plot(ax=ax, alpha=0.25)
 
