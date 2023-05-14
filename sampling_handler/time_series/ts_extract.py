@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import time
@@ -90,7 +91,8 @@ class TimeSeriesExtraction(Esbae):
 
         # check if relevant value changed, and clean up out folder in case, to keep output data consistent
         if list(Path(self.out_dir).joinpath(self.satellite).glob('*geojson')):
-            _check_config_changed(self.config_dict)
+            if _check_config_changed(self.config_dict):
+                return
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
@@ -102,19 +104,23 @@ class TimeSeriesExtraction(Esbae):
 
         logger.info('Verifying ')
         actual_size = ee.FeatureCollection(self.sample_asset).size().getInfo()
-        dfs = []
-        for file in Path(f'{self.out_dir}/{self.satellite}').glob('*geojson'):
-            with open(file) as f:
-                dfs.append(
-                    gpd.GeoDataFrame.from_features(
-                        geojson.loads(geojson.load(f))
-                    ).drop(['ts', 'dates', 'geometry'], axis=1)
-                )
-            df = pd.concat(dfs)
 
-        if not dfs:
+        files = list(Path(self.out_dir).joinpath(self.satellite).glob('*geojson'))
+        if not files:
             logger.info('No time-series data has been extracted yet.')
             return
+
+        # prepare for parallel execution
+        files = [[str(file), False, [self.pid]] for file in files]
+
+        # read files in parallel nad put the in a list
+        result = py_helpers.run_in_parallel(
+            py_helpers.geojson_to_gdf,
+            files,
+            workers=os.cpu_count() * 2,
+            parallelization='processes'
+        )
+        df = pd.concat(result)
 
         if actual_size > len(df[self.pid].unique()):
             missing = actual_size - len(df[self.pid].unique())
@@ -363,62 +369,69 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
     gmt = time.strftime("%y%m%d_%H%M%S", time.gmtime())
 
     if subset:
-        files = list(out_dir.glob(f'{subset}*geojson'))
+        files = list(out_dir.glob(f'{subset}_*geojson'))
     else:
         files = list(out_dir.glob(f'*geojson'))
 
-    if len(files) > 0:
-        logger.info("Checking for already processed files.")
-        tmp_dfs = []
-        for file in files:
-            with open(file, 'r') as outfile:
-                d = gpd.GeoDataFrame.from_features(
-                    geojson.loads(geojson.load(outfile))).drop(
-                    ['dates', 'ts', 'images', 'geometry'], axis=1)
-                tmp_dfs.append(d)
+    if not files:
+        logger.info('No time-series data has been extracted yet.')
+        return
 
-        tmp_df = pd.concat(tmp_dfs).drop_duplicates(pid)
-        logger.info(f'Found {len(tmp_df)} already processed points')
+    # prepare for parallel execution
+    logger.info(
+        'Found already processed files. Will identify already processed points and skip them.'
+    )
+    files = [[str(file), False, [pid]] for file in files]
 
-        if isinstance(input_grid, gpd.geodataframe.GeoDataFrame):
+    # read files in parallel nad put the in a list
+    result = py_helpers.run_in_parallel(
+        py_helpers.geojson_to_gdf,
+        files,
+        workers=os.cpu_count() * 2,
+        parallelization='processes'
+    )
+    tmp_df = pd.concat(result).drop_duplicates(pid)
 
-            logger.warning(
-                "Points within those file are discarded."
+    logger.info(f'Found {len(tmp_df)} already processed points')
+    if isinstance(input_grid, gpd.geodataframe.GeoDataFrame):
+
+        logger.warning(
+            "Points within those file are discarded."
+        )
+        # update input_grid and keep only non-processed points
+        input_grid = input_grid[
+            ~input_grid[pid].isin(tmp_df[pid].to_list())
+        ]
+
+    elif isinstance(input_grid, ee.FeatureCollection):
+
+        # get already processed points
+        processed_points = ee.List(tmp_df[pid].to_list())
+        # filter the input grid to non-processed points
+        input_grid = input_grid.filter(
+            ee.Filter.inList(pid, processed_points).Not()
+        )
+
+        if input_grid.size().getInfo() > 0:
+            logger.info(
+                "Already processed points are discarded and a temporary "
+                "FeatureCollection including the non-processed points "
+                "will be uploaded on Earth Engine."
             )
-            # update input_grid and keep only non processed points
-            input_grid = input_grid[
-                ~input_grid[pid].isin(tmp_df[pid].to_list())
-            ]
-
-        elif isinstance(input_grid, ee.FeatureCollection):
-
-            # get already processed points
-            processed_points = ee.List(tmp_df[pid].to_list())
-            # filter the input grid to non-processed points
-            input_grid = input_grid.filter(
-                ee.Filter.inList(pid, processed_points).Not()
+            # export the filtered grid to a new feature collection
+            _, input_grid = _ee_export_table(
+                ee_fc=input_grid,
+                description=f"tmp_esbae_table_export_{gmt}",
+                asset_id=f"tmp_esbae_table_{gmt}",
+                sub_folder=f"tmp_esbae_{gmt}"
             )
 
-            if input_grid.size().getInfo() > 0:
-                logger.info(
-                    "Already processed points are discarded and a temporary "
-                    "FeatureCollection including the non-processed points "
-                    "will be uploaded on Earth Engine."
-                )
-                # export the filtered grid to a new feature collection
-                _, input_grid = _ee_export_table(
-                    ee_fc=input_grid,
-                    description=f"tmp_esbae_table_export_{gmt}",
-                    asset_id=f"tmp_esbae_table_{gmt}",
-                    sub_folder=f"tmp_esbae_{gmt}"
-                )
-
-                input_grid = ee.FeatureCollection(input_grid)
-            else:
-                logger.info(
-                    "This batch of points has successfully been processed."
-                )
-                input_grid = 'completed'
+            input_grid = ee.FeatureCollection(input_grid)
+        else:
+            logger.info(
+                "This batch of points has successfully been processed."
+            )
+            input_grid = 'completed'
 
     elif upload_sub:
         logger.info(
@@ -586,9 +599,9 @@ def cascaded_extraction_ee(input_grid, config_dict):
     for i in range(0, size, 25000):
 
         if size > 25000:
-            logger.info(f"------------------------------------------------")
+            logger.info("------------------------------------------------")
             logger.info(f"Processing subset {int(i/25000+1)}/{subsets}")
-            logger.info(f"------------------------------------------------")
+            logger.info("------------------------------------------------")
 
         sub = ee.FeatureCollection(input_grid.toList(25000, i))
         # if already processed files are in the tmp_folder
@@ -660,24 +673,22 @@ def _check_config_changed(config_dict):
         [new_ts_params.pop(key) for key in keys_list]
         [old_ts_params.pop(key) for key in keys_list]
 
-        if not new_ts_params == old_ts_params:
+        if new_ts_params != old_ts_params:
             config_change = input(
                 'Your processing parameters in your config file changed. '
                 'If you continue, all of your already processed files will be '
                 'deleted. Are you sure you want to continue? (yes/no)'
             )
             if config_change == 'no':
-                return
+                return True
             elif config_change == 'yes':
                 logger.info('Cleaning up results folder.')
                 [file.unlink() for file in out_dir.glob('*geojson')]
-                return
+                return False
             else:
                 raise ValueError(
                     'Answer is not recognized, should be \'yes\' or \'no\''
                 )
-
-    return
 
 
 def extract(input_grid, config_dict):

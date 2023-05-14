@@ -215,7 +215,7 @@ def gdf_to_geojson(gdf, outfile, convert_dates=False):
         geojson.dump(gdf.to_json(), outfile)
 
 
-def geojson_to_gdf(infile, convert_dates=False):
+def geojson_to_gdf(infile, convert_dates=False, cols=False):
 
     # this is how we load
     with open(infile, 'r') as outfile:
@@ -231,7 +231,10 @@ def geojson_to_gdf(infile, convert_dates=False):
             )
         )
 
-    return gdf
+    if cols:
+        return gdf[cols]
+    else:
+        return gdf
 
 
 def aggregate_outfiles(directory, convert_dates=False):  # glob all files in the data augmentation output folder

@@ -377,7 +377,7 @@ def plot_samples(aoi, sample_points, grid_cells=None, basemap=cx.providers.Esri.
         grid_cells.plot(ax=ax, facecolor="none", edgecolor="black", lw=0.1)
 
     sample_points.plot(ax=ax, facecolor="red", markersize=0.5)
-    cx.add_basemap(ax, crs=aoi.crs.to_string())
+    cx.add_basemap(ax, crs=aoi.crs.to_string(), source=basemap)
     ax.add_artist(ScaleBar(py_helpers.get_scalebar_distance(sample_points)))
     ax.set_title('Sample Design')
     return fig

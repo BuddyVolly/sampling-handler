@@ -82,7 +82,7 @@ class DataAugmentation(Esbae):
         self.py_workers = conf['da_params']['py_workers']
         self.ee_workers = conf['da_params']['ee_workers']
 
-    def augment(self):
+    def augment(self, skip_batches=[]):
 
         # update config_dict
         # apply the basic configuration set in the cell above
@@ -104,14 +104,16 @@ class DataAugmentation(Esbae):
         self.config_dict['da_params']['ee_workers'] = self.ee_workers
 
         # check for relevant chagen that might necessitate the restart from scratch
-        # check if relevant value changed, and clean up out folder in case, to keep output data consistent
+        # check if relevant value changed,
+        # and clean up out folder in case, to keep output data consistent
         if list(Path(self.out_dir).joinpath(self.satellite).glob('*geojson')):
-            _check_config_changed(self.config_dict, self.satellite)
+            if _check_config_changed(self.config_dict, self.satellite):
+                return
 
         # update conf file with set parameters before running
         config.update_config_file(self.config_file, self.config_dict)
 
-        run_change(self.config_dict, self.satellite)
+        run_change(self.config_dict, self.satellite, skip_batches)
 
 
 def ee_change(gdf, samples, config_dict):
@@ -268,20 +270,18 @@ def _check_config_changed(config_dict, satellite):
                 'deleted. Are you sure you want to continue? (yes/no)'
             )
             if config_change == 'no':
-                return
+                return True
             elif config_change == 'yes':
                 logger.info('Cleaning up results folder.')
                 [file.unlink() for file in out_dir.glob('*geojson')]
-                return
+                return False
             else:
                 raise ValueError(
                     'Answer is not recognized, should be \'yes\' or \'no\''
                 )
 
-    return
 
-
-def run_change(config_dict, satellite):
+def run_change(config_dict, satellite, skip_batches=[]):
 
     logger.info('Initializing data augmentation routine...')
 
@@ -310,10 +310,14 @@ def run_change(config_dict, satellite):
 
     for batch in batches:
 
+        if batch in skip_batches:
+            continue
+
         outfile = outdir.joinpath(f'{batch}_change.geojson')
         if outfile.exists():
             logger.info(
-                f'Batch {int(batch)}/{len(batches)} has been already processed. Going on with next one.'
+                f'Batch {int(batch)}/{len(batches)} has been already processed. '
+                f'Going on with next one...'
             )
             continue
 
@@ -326,13 +330,13 @@ def run_change(config_dict, satellite):
             workers=config_dict['da_params']['py_workers'],
             parallelization='processes'
         )
-        cdf = pd.concat(result)
+        cdf = pd.concat(result).drop_duplicates(config_dict['design_params']['pid'])
 
         logger.info(f'Running the data augmentation routines on {len(cdf)} points...')
         change_df = change_routine(cdf, config_dict, samples)
 
         logger.info('Dump results table to output file...')
         py_helpers.gdf_to_geojson(change_df, outfile, convert_dates=True)
-        py_helpers.timer(start, f'Batch {int(batch) + 1}/{len(batches)} finished in: ')
+        py_helpers.timer(start, f'Batch {int(batch)}/{len(batches)} finished in: ')
 
     logger.info('Data augmentation finished...')
