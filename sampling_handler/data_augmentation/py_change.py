@@ -261,7 +261,6 @@ def py_change(df, config_dict):
 
         logger.info('Running the time-scan on current batch of points.')
         for band in ts_metrics_params['bands']:
-            print(band)
             start = time.time()
             ts_args = []
             for i, row in df.iterrows():
