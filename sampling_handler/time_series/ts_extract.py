@@ -375,7 +375,7 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
 
     if not files:
         logger.info('No time-series data has been extracted yet.')
-        return
+        return input_grid
 
     # prepare for parallel execution
     logger.info(
@@ -579,7 +579,7 @@ def cascaded_extraction_ee(input_grid, config_dict):
 
     # get number of points to process
     size = input_grid.size().getInfo()
-    upload_sub = False
+    upload_sub = True
     if size > 25000:
         subsets = int(np.ceil(size / 25000))
         logger.info(
@@ -605,7 +605,11 @@ def cascaded_extraction_ee(input_grid, config_dict):
 
         sub = ee.FeatureCollection(input_grid.toList(25000, i))
         # if already processed files are in the tmp_folder
-        sub = _get_missing_points(sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub)
+        if size > 25000:
+            sub = _get_missing_points(sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub)
+        else:
+            sub = _get_missing_points(sub, config_dict, subset=None, upload_sub=upload_sub)
+
         if sub == 'completed':
             continue
 
