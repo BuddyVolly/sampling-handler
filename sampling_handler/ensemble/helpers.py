@@ -41,9 +41,9 @@ def kmeans_stratifier(df, x, strata, sample_size):
         [(
             i,
             len(df[df.kmeans == i]), 
-            np.mean(df['simple_combined'][df.kmeans == i]), 
-            np.std(df['simple_combined'][df.kmeans == i]),
-            len(df[df.kmeans == i])*np.std(df['simple_combined'][df.kmeans == i])
+            np.mean(df[x][df.kmeans == i]),
+            np.std(df[x][df.kmeans == i]),
+            len(df[df.kmeans == i])*np.std(df[x][df.kmeans == i])
         )
             for i in df.kmeans.unique()], columns=['KMeans', 'Nh', 'mean', 'SD', 'div'])
     

@@ -406,18 +406,21 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
     elif isinstance(input_grid, ee.FeatureCollection):
 
         # get already processed points
-        processed_points = ee.List(tmp_df[pid].to_list())
-        # filter the input grid to non-processed points
-        input_grid = input_grid.filter(
-            ee.Filter.inList(pid, processed_points).Not()
-        )
+        processed_points = tmp_df[pid].to_list()
 
-        if input_grid.size().getInfo() > 0:
+        if input_grid.size().getInfo() > len(processed_points):
+
             logger.info(
                 "Already processed points are discarded and a temporary "
                 "FeatureCollection including the non-processed points "
                 "will be uploaded on Earth Engine."
             )
+
+            # filter the input grid to non-processed points
+            input_grid = input_grid.filter(
+                ee.Filter.inList(pid, ee.List(processed_points)).Not()
+            )
+
             # export the filtered grid to a new feature collection
             _, input_grid = _ee_export_table(
                 ee_fc=input_grid,

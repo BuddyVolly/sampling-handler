@@ -33,18 +33,22 @@ from sklearn.ensemble import IsolationForest
 from skopt import BayesSearchCV
 from ..esbae import Esbae
 from ..misc.settings import setup_logger
+from ..misc import py_helpers
+
 
 # Create a logger object
 logger = logging.getLogger(__name__)
 LOGFILE = setup_logger(logger)
 
-class EnsembleClassification(Esbae):
 
+class EnsembleClassification(Esbae):
 
     def __init__(
             self,
             project_name,
             satellite,
+            ts_start,
+            ts_end,
             aoi=None
     ):
 
@@ -66,7 +70,6 @@ class EnsembleClassification(Esbae):
         self.satellite = satellite
         self.outlier = False
         self.bayes_optim = False
-        self.bands = bands
 
         # get params from befre steps (or default values)
         conf = self.config_dict
