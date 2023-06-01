@@ -4,9 +4,9 @@ import logging
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.pyplot as plt
 from scipy import stats
 
+from ..misc import py_helpers
 from ..misc.settings import setup_logger
 
 # Create a logger object
@@ -54,7 +54,15 @@ def rolling_mean(dates, ts, bands, interval="60d"):
 
 def smooth_ts(df, bands):
 
+    #args = []
+    #for i, row in df.iterrows():
+
+    #    args.append([row.dates, row.ts, bands])
+
+    #results = py_helpers.run_in_parallel(rolling_mean, args)
+    #df['ts'] = results
     df["ts"] = df.apply(lambda x: rolling_mean(x.dates, x.ts, bands), axis=1)
+
     return df
 
 
@@ -85,6 +93,13 @@ def outlier_removal(dates, ts, bands, ts_band):
 
 
 def remove_outliers(df, bands, ts_band):
+
+    #args = []
+    #for i, row in df.iterrows():
+    #    args.append([row.dates, row.ts, bands, ts_band])
+
+    #results = py_helpers.run_in_parallel(outlier_removal, args)
+    #df[['dates', 'ts']] = results
 
     df[['dates', 'ts']] = df.apply(
         lambda x: outlier_removal(x.dates, x.ts, bands, ts_band),

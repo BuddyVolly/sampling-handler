@@ -77,7 +77,7 @@ class KMeansSubSampling(Esbae):
     def cluster(self, standardize_inputs=False):
 
         da_dic = Path(self.config_dict['da_params']['outdir']).joinpath(self.satellite)
-        logger.info('Aggregating files from data augmentation step')
+        logger.info('Aggregating files from dataset augmentation step')
         self.df = py_helpers.aggregate_outfiles(da_dic)
 
         # select columsn that are used by Kmeans

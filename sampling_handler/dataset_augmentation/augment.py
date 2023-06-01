@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 LOGFILE = setup_logger(logger)
 
 
-class DataAugmentation(Esbae):
+class DatasetAugmentation(Esbae):
 
     def __init__(
             self,
@@ -42,7 +42,7 @@ class DataAugmentation(Esbae):
         )
 
         # here is where out files are stored
-        self.out_dir = str(Path(self.project_dir).joinpath('04_Data_Augmentation'))
+        self.out_dir = str(Path(self.project_dir).joinpath('04_Dataset_Augmentation'))
         Path(self.out_dir).mkdir(parents=True, exist_ok=True)
 
         self.calibration_start = calibration_start
@@ -82,7 +82,7 @@ class DataAugmentation(Esbae):
         self.py_workers = conf['da_params']['py_workers']
         self.ee_workers = conf['da_params']['ee_workers']
 
-    def augment(self, skip_batches=[]):
+    def augment(self, skip_batches=None):
 
         # update config_dict
         # apply the basic configuration set in the cell above
@@ -91,6 +91,8 @@ class DataAugmentation(Esbae):
         self.config_dict['da_params']['start_monitor'] = self.monitor_start
         self.config_dict['da_params']['end_monitor'] = self.monitor_end
         self.config_dict['da_params']['ts_band'] = self.ts_band
+        self.config_dict['da_params']['outlier_removal'] = self.outlier_removal
+        self.config_dict['da_params']['smooth_ts'] = self.smooth_ts
         self.config_dict['da_params']['cusum'] = self.cusum
         self.config_dict['da_params']['bfast'] = self.bfast
         self.config_dict['da_params']['ts_metrics'] = self.ts_metrics
@@ -168,6 +170,8 @@ def change_routine(gdf, config_dict, samples=None):
     bands = config_dict['ts_params']['lsat_params']['bands']
     pid = config_dict['design_params']['pid']
     da_params = config_dict['da_params']
+    outlier_removal =  da_params['outlier_removal']
+    smooth_ts = da_params['smooth_ts']
     ccdc = da_params['ccdc']['run']
     land_trendr = da_params['land_trendr']['run']
     glb_prd = da_params['global_products']['run']
@@ -179,24 +183,27 @@ def change_routine(gdf, config_dict, samples=None):
     ts_band = da_params['ts_band']
 
     start = time.time()
-    logger.info('Cleaning the time-series from outliers.')
-    gdf = (
-        ts_helpers.remove_outliers(gdf, bands, ts_band)
-        if da_params['outlier_removal'] else gdf
-    )
-    py_helpers.timer(start, "Outlier removal finished in")
+    if outlier_removal:
+        logger.info('Cleaning the time-series from outliers.')
+        gdf = (
+            ts_helpers.remove_outliers(gdf, bands, ts_band)
+            if da_params['outlier_removal'] else gdf
+        )
+        py_helpers.timer(start, "Outlier removal finished in")
 
-    start = time.time()
-    logger.info('Smoothing the time-series with a rolling mean.')
-    gdf = ts_helpers.smooth_ts(gdf, bands) if da_params['smooth_ts'] else gdf
-    py_helpers.timer(start, 'Time-series smoothing finished in')
+    if smooth_ts:
+        start = time.time()
+        logger.info('Smoothing the time-series with a rolling mean.')
+        gdf = ts_helpers.smooth_ts(gdf, bands) if da_params['smooth_ts'] else gdf
+        py_helpers.timer(start, 'Time-series smoothing finished in')
+
     # we cut ts data to actual change period only
-
     start = time.time()
     logger.info(
-        'Creating a subset of the time-series according '
-        'to the analysis period.'
+        'Creating a subset of the time-series for the '
+        'full analysis period (calibration & monitoring).'
     )
+
     gdf[['dates', 'ts', 'images']] = gdf.apply(
         lambda row: ts_helpers.subset_ts(
             row,
@@ -263,7 +270,7 @@ def _check_config_changed(config_dict, satellite):
         [new_ts_params.pop(key) for key in keys_list]
         [old_ts_params.pop(key) for key in keys_list]
 
-        if not new_ts_params == old_ts_params:
+        if new_ts_params != old_ts_params:
             config_change = input(
                 'Your processing parameters in your config file changed. '
                 'If you continue, all of your already processed files will be '
@@ -281,9 +288,9 @@ def _check_config_changed(config_dict, satellite):
                 )
 
 
-def run_change(config_dict, satellite, skip_batches=[]):
+def run_change(config_dict, satellite, skip_batches=None):
 
-    logger.info('Initializing data augmentation routine...')
+    logger.info('Initializing dataset augmentation routine...')
 
     if not config_dict['design_params']['ee_samples_fc']:
         raise ValueError(
@@ -310,7 +317,7 @@ def run_change(config_dict, satellite, skip_batches=[]):
 
     for batch in batches:
 
-        if batch in skip_batches:
+        if skip_batches and batch in skip_batches:
             continue
 
         outfile = outdir.joinpath(f'{batch}_change.geojson')
@@ -332,11 +339,11 @@ def run_change(config_dict, satellite, skip_batches=[]):
         )
         cdf = pd.concat(result).drop_duplicates(config_dict['design_params']['pid'])
 
-        logger.info(f'Running the data augmentation routines on {len(cdf)} points...')
+        logger.info(f'Running the dataset augmentation routines on {len(cdf)} points...')
         change_df = change_routine(cdf, config_dict, samples)
 
         logger.info('Dump results table to output file...')
         py_helpers.gdf_to_geojson(change_df, outfile, convert_dates=True)
         py_helpers.timer(start, f'Batch {int(batch)}/{len(batches)} finished in: ')
 
-    logger.info('Data augmentation finished...')
+    logger.info('Dataset augmentation finished...')

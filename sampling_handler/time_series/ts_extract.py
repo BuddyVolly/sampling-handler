@@ -14,10 +14,7 @@ import geopandas as gpd
 from retrying import retry
 
 from ee_preproc import landsat_collection
-from ..misc.ee_helpers import (
-    export_to_ee, delete_sub_folder, processing_grid,
-    _ee_export_table, cleanup_tmp_esbae
-)
+from ..misc import ee_helpers as eeh
 
 from ..esbae import Esbae
 from ..misc import py_helpers, config
@@ -102,7 +99,10 @@ class TimeSeriesExtraction(Esbae):
 
     def check_if_completed(self):
 
-        logger.info('Verifying ')
+        logger.info(
+            'Verifying the number of points for which the time-series '
+            'have already been extracted...'
+        )
         actual_size = ee.FeatureCollection(self.sample_asset).size().getInfo()
 
         files = list(Path(self.out_dir).joinpath(self.satellite).glob('*geojson'))
@@ -133,7 +133,7 @@ class TimeSeriesExtraction(Esbae):
         if actual_size == len(df[self.pid].unique()):
             logger.info(
                 'Time-series data has been extracted completely. '
-                'Time to move on with the data augmentation notebook.'
+                'Time to move on with the dataset augmentation notebook.'
             )
         return
 
@@ -244,7 +244,7 @@ def extract_time_series(image_collection, points, config_dict, identifier=None, 
         if not isinstance(points, ee.FeatureCollection):
 
             points_fc = f"{identifier}"
-            asset_id = export_to_ee(
+            asset_id = eeh.export_to_ee(
                 gdf=points[[point_id_name, 'geometry']],
                 asset_name=points_fc,
                 ee_sub_folder=export_folder
@@ -379,7 +379,7 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
 
     # prepare for parallel execution
     logger.info(
-        'Found already processed files. Will identify already processed points and skip them.'
+        'Found already processed files. Identifying already processed points and skipping them.'
     )
     files = [[str(file), False, [pid]] for file in files]
 
@@ -391,6 +391,11 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
         parallelization='processes'
     )
     tmp_df = pd.concat(result).drop_duplicates(pid)
+    if len(tmp_df) == 25000:
+        logger.info(
+            "This batch of points has successfully been processed."
+        )
+        return 'completed'
 
     logger.info(f'Found {len(tmp_df)} already processed points')
     if isinstance(input_grid, gpd.geodataframe.GeoDataFrame):
@@ -407,22 +412,30 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
 
         # get already processed points
         processed_points = tmp_df[pid].to_list()
+        # export temporary collection of processed points
+        processed_ee = ee.FeatureCollection(
+            ee.List(processed_points).map(
+                lambda pid: ee.Feature(None, {'pid': pid})
+            )
+        )
 
-        if input_grid.size().getInfo() > len(processed_points):
+        # create filter for join
+        filter = ee.Filter.equals(leftField=pid, rightField='pid')
+
+        # define the join
+        inverted_join = ee.Join.inverted()
+
+        # apply join
+        input_grid = inverted_join.apply(input_grid, processed_ee, filter)
+
+        if input_grid.size().getInfo() > 0:
 
             logger.info(
-                "Already processed points are discarded and a temporary "
-                "FeatureCollection including the non-processed points "
-                "will be uploaded on Earth Engine."
-            )
-
-            # filter the input grid to non-processed points
-            input_grid = input_grid.filter(
-                ee.Filter.inList(pid, ee.List(processed_points)).Not()
+                "Points not yet processed are uploaded to Earth Engine."
             )
 
             # export the filtered grid to a new feature collection
-            _, input_grid = _ee_export_table(
+            _, input_grid = eeh._ee_export_table(
                 ee_fc=input_grid,
                 description=f"tmp_esbae_table_export_{gmt}",
                 asset_id=f"tmp_esbae_table_{gmt}",
@@ -434,13 +447,13 @@ def _get_missing_points(input_grid, config_dict, subset=None, upload_sub=False):
             logger.info(
                 "This batch of points has successfully been processed."
             )
-            input_grid = 'completed'
+            return 'completed'
 
     elif upload_sub:
         logger.info(
             "Uploading current batch of samples as temporary asset to Earth Engine."
         )
-        _, input_grid = _ee_export_table(
+        _, input_grid = eeh._ee_export_table(
             ee_fc=input_grid,
             description=f"tmp_esbae_table_export_{gmt}",
             asset_id=f"tmp_esbae_table_{gmt}",
@@ -471,7 +484,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
         f'inside tmp_esbae_{gmt}.'
     )
     aoi_fc = ee.FeatureCollection(points_fc.geometry().convexHull(100))
-    _, aoi_fc = _ee_export_table(
+    _, aoi_fc = eeh._ee_export_table(
         ee_fc=aoi_fc,
         description=f"tmp_esbae_aoi_{gmt}",
         asset_id=f"tmp_esbae_aoi_{gmt}",
@@ -487,8 +500,8 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
         f"parallel extraction."
     )
 
-    chunks_fc = processing_grid(aoi_fc, chunk_size)
-    #chunks_fc = aoi_fc.geometry().coveringGrid(aoi_fc.geometry(), chunk_size)
+    # create the grid of processing chunks
+    chunks_fc = eeh.processing_grid(aoi_fc, chunk_size)
 
     # filter for chunks with valid number of points
     to_proc = chunks_fc.map(
@@ -506,7 +519,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
     try:
         proc_size = to_proc.size().getInfo()
         if proc_size > 250:
-            _, to_proc = _ee_export_table(
+            _, to_proc = eeh._ee_export_table(
                 ee_fc=to_proc,
                 description=f"tmp_esbae_grid_{gmt}",
                 asset_id=f"tmp_esbae_grid_{gmt}",
@@ -514,7 +527,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
             )
             to_proc = ee.FeatureCollection(to_proc)
     except ee.EEException:
-        _, to_proc = _ee_export_table(
+        _, to_proc = eeh._ee_export_table(
             ee_fc=to_proc,
             description=f"tmp_esbae_grid_{gmt}",
             asset_id=f"tmp_esbae_grid_{gmt}",
@@ -560,7 +573,7 @@ def _parallel_extract_ee(points_fc, chunk_size, config_dict, subset):
         return_code = 1
 
     try:
-        delete_sub_folder(f"tmp_esbae_{gmt}")
+        eeh.delete_sub_folder(f"tmp_esbae_{gmt}")
     except ee.EEException:
         pass
 
@@ -600,6 +613,10 @@ def cascaded_extraction_ee(input_grid, config_dict):
     # if collection is greater than that, we iterate over chunks
     subs = []
     for i in range(0, size, 25000):
+        ########################
+        #if int(i/25000+1) < 9:
+        #    continue
+        ########################
 
         if size > 25000:
             logger.info("------------------------------------------------")
@@ -607,11 +624,11 @@ def cascaded_extraction_ee(input_grid, config_dict):
             logger.info("------------------------------------------------")
 
         sub = ee.FeatureCollection(input_grid.toList(25000, i))
+
+        # this is to see if we have more subsets and which one it is
+        subset = int(i / 25000 + 1) if size > 25000 else None
         # if already processed files are in the tmp_folder
-        if size > 25000:
-            sub = _get_missing_points(sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub)
-        else:
-            sub = _get_missing_points(sub, config_dict, subset=None, upload_sub=upload_sub)
+        sub = _get_missing_points(sub, config_dict, subset=subset, upload_sub=upload_sub)
 
         if sub == 'completed':
             continue
@@ -621,13 +638,15 @@ def cascaded_extraction_ee(input_grid, config_dict):
             _ = _parallel_extract_ee(
                 sub, chunk_size, config_dict, subset=int(i/25000+1)
             )
+
             logger.info(
                 "Checking for points not processed at the current "
                 "aggregation level."
             )
-            sub = _get_missing_points(
-                sub, config_dict, subset=int(i/25000+1), upload_sub=upload_sub
-            )
+
+            # if already processed files are in the tmp_folder
+            sub = _get_missing_points(sub, config_dict, subset=subset, upload_sub=upload_sub)
+
             if sub == 'completed':
                 break
 
@@ -654,7 +673,7 @@ def cascaded_extraction_ee(input_grid, config_dict):
         "Cleaning up temporary Earth Engine assets created "
         "during the processing."
     )
-    cleanup_tmp_esbae()
+    eeh.cleanup_tmp_esbae()
 
 
 def _check_config_changed(config_dict):

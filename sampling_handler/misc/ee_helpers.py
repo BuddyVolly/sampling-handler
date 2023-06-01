@@ -146,8 +146,7 @@ def check_finished_tasks(tasks, wait=30):
                 if task.status()['error_message'] == 'Table is empty.':
                     finished = True
                 else:
-                    finished = True
-                    raise 'Upload failed'
+                    raise RuntimeError('Upload failed')
             elif state in ['UNSUBMITTED', 'SUBMITTED', 'READY', 'RUNNING', 'CANCEL_REQUESTED']:
                 finished = False
                 break

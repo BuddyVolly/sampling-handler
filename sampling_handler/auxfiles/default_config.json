@@ -6,7 +6,7 @@
   },
   "stats_params": {
     "start": 2001,
-    "end": 2020,
+    "end": 2022,
     "tree_cover": 10,
     "mmu": 0.5,
     "target_error": 10,

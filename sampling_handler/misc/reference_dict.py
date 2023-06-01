@@ -6,8 +6,8 @@ REFERENCE_DICT = {
         'aoi_crs': {'type': 'projection'}
     },
     'stats_params': {
-        'start': {"type": int, "choices": range(2001, 2022)},
-        'end': {"type": int, "choices": range(2001, 2022)},
+        'start': {"type": int, "choices": range(2001, 2023)},
+        'end': {"type": int, "choices": range(2001, 2023)},
         'tree_cover': {"type": int, "choices": range(1, 101)},
         'mmu': {"type": (int, float), "choices": {'min': 0, 'max': 10000}},
         'target_error': {"type": (int, float), "choices":  {'min': 1, 'max': 100}},

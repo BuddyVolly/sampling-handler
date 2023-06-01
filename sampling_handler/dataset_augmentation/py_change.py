@@ -178,7 +178,7 @@ def py_change(df, config_dict):
     bs_bootstraps = da_params['bs_slope']['nr_of_bootstraps']
     cusum_bootstraps = da_params['cusum']['nr_of_bootstraps']
     ts_metrics_params = da_params['ts_metrics']
-    outlier_removal, z_threshhold = (
+    ts_outlier_removal, z_threshhold = (
         ts_metrics_params['outlier_removal'],
         ts_metrics_params['z_threshhold'],
     )
@@ -197,7 +197,6 @@ def py_change(df, config_dict):
         )
 
     bfast_args, bs_args, cusum_args, ts_args, nrt_args = [], [], [], [], []
-    d = {}
     for i, row in df.iterrows():
 
         if bfast:
@@ -265,7 +264,7 @@ def py_change(df, config_dict):
             ts_args = []
             for i, row in df.iterrows():
                 ts_args.append(
-                    [row.ts_mon[ts_band], row[pid], outlier_removal, z_threshhold]
+                    [row.ts_mon[ts_band], row[pid], ts_outlier_removal, z_threshhold]
                 )
 
             results = run_in_parallel(timescan, ts_args, workers)
@@ -293,7 +292,7 @@ def py_change(df, config_dict):
 
     if jrc_nrt:
         start = time.time()
-        logger.info('Running EWMA, MoSUm, CuSum from JRC NRT package')
+        logger.info('Running EWMA, MoSum, CuSum from JRC NRT package')
         results = run_in_parallel(run_jrc_nrt, nrt_args, workers, 'processes')
         d = {i: result for i, result in enumerate(results)}
         nrt_df = pd.DataFrame.from_dict(d, orient='index')

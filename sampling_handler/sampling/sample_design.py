@@ -69,8 +69,6 @@ class SampleDesign(Esbae):
         self.config_dict['design_params']['grid_size'] = self.squared_grid_size
         self.config_dict['design_params']['grid_crs'] = self.grid_crs
         self.config_dict['design_params']['out_crs'] = self.out_crs
-        self.config_dict['design_params']['ee_grid_fc'] = self.ee_grid_fc
-        self.config_dict['design_params']['ee_samples_fc'] = self.ee_points_fc
         self.config_dict['design_params']['dggrid']['resolution'] = self.dggrid_resolution
         self.config_dict['design_params']['dggrid']['projection'] = self.dggrid_projection
         config.update_config_file(self.config_file, self.config_dict)
@@ -99,9 +97,9 @@ class SampleDesign(Esbae):
             )
 
             cell_name = f'{self.sampling_strategy}_squared_' \
-                        f'{self.dggrid_projection}_{self.dggrid_resolution}'
+                        f'{self.grid_crs}_{self.squared_grid_size}'
             points_name = f'{self.sampling_strategy}_samples_' \
-                          f'{self.dggrid_projection}_{self.dggrid_resolution}'
+                          f'{self.grid_crs}_{self.squared_grid_size}'
 
         # save files
         logger.info('Grid cells are saved locally.')
@@ -123,6 +121,11 @@ class SampleDesign(Esbae):
             self.ee_points_fc = ee_helpers.export_to_ee(
                 self.points, points_name, self.project_name
             )
+
+            # write ee collections to config file
+            self.config_dict['design_params']['ee_grid_fc'] = self.ee_grid_fc
+            self.config_dict['design_params']['ee_samples_fc'] = self.ee_points_fc
+            config.update_config_file(self.config_file, self.config_dict)
 
         return self.cell_grid, self.points
 
@@ -365,19 +368,22 @@ def parallel_hexgrid(
     return hexs, centroids
 
 
-def plot_samples(aoi, sample_points, grid_cells=None, basemap=cx.providers.Esri.WorldImagery):
+def plot_samples(
+        aoi, sample_points, grid_cells=None, basemap=cx.providers.Esri.WorldImagery, markersize=1
+):
     """ TO DO DOC"""
 
     fig, ax = plt.subplots(1, 1, figsize=(25, 25))
 
     aoi = py_helpers.read_any_aoi_to_single_row_gdf(aoi, sample_points.crs)
-    aoi.plot(ax=ax, alpha=0.25)
 
     if grid_cells is not None:
-        grid_cells.plot(ax=ax, facecolor="none", edgecolor="black", lw=0.1)
+        grid_cells.plot(ax=ax, facecolor="orange", alpha=0.2, edgecolor="black", lw=0.1)
 
-    sample_points.plot(ax=ax, facecolor="red", markersize=0.5)
+    sample_points.plot(ax=ax, facecolor="red", markersize=markersize)
+    aoi.plot(ax=ax, alpha=0.25,edgecolor="white", lw=1)
     cx.add_basemap(ax, crs=aoi.crs.to_string(), source=basemap)
     ax.add_artist(ScaleBar(py_helpers.get_scalebar_distance(sample_points)))
     ax.set_title('Sample Design')
+
     return fig

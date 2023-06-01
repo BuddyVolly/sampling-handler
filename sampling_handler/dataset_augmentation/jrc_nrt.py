@@ -1,3 +1,4 @@
+import logging
 import datetime
 import pandas as pd
 import xarray as xr
@@ -7,9 +8,15 @@ from nrt.monitor.ewma import EWMA
 from nrt.monitor.cusum import CuSum
 from nrt.monitor.mosum import MoSum
 # TODO from nrt.monitor.ccdc import CCDC
+from ..misc.settings import setup_logger
+# Create a logger object
 
 
-def run_jrc_nrt(dates, ts, pid, config_dict):
+logger = logging.getLogger(__name__)
+LOGFILE = setup_logger(logger)
+
+
+def run_jrc_nrt(ts, dates, pid, config_dict):
 
     # extract point id column name
     point_id_name = config_dict['design_params']['pid']
@@ -62,16 +69,17 @@ def run_jrc_nrt(dates, ts, pid, config_dict):
 
         return (
             pid,
-            EwmaMonitor.detection_date.flatten(),
-            np.where(EwmaMonitor.detection_date.flatten() > 0, 1, 0),
-            EwmaMonitor.process.flatten(),
-            MoSumMonitor.detection_date.flatten(),
-            np.where(MoSumMonitor.detection_date.flatten() > 0, 1, 0),
-            MoSumMonitor.process.flatten(),
-            CuSumMonitor.detection_date.flatten(),
-            np.where(CuSumMonitor.detection_date.flatten() > 0, 1, 0),
-            CuSumMonitor.process.flatten()
+            EwmaMonitor.detection_date.flatten()[0],
+            np.where(EwmaMonitor.detection_date.flatten() > 0, 1, 0)[0],
+            EwmaMonitor.process.flatten()[0],
+            MoSumMonitor.detection_date.flatten()[0],
+            np.where(MoSumMonitor.detection_date.flatten() > 0, 1, 0)[0],
+            MoSumMonitor.process.flatten()[0],
+            CuSumMonitor.detection_date.flatten()[0],
+            np.where(CuSumMonitor.detection_date.flatten() > 0, 1, 0)[0],
+            CuSumMonitor.process.flatten()[0]
         )
 
-    except:
+    except Exception as e:
+        logger.debug(e)
         return pid, 0, 0, 0, 0, 0, 0, 0, 0, 0

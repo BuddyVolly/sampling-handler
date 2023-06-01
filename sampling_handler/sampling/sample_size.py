@@ -15,7 +15,7 @@ from scipy import stats
 from retrying import retry
 
 from ..esbae import Esbae
-from ..misc import py_helpers
+from ..misc import py_helpers, config
 from ..misc.settings import setup_logger
 
 # Create a logger object
@@ -72,6 +72,16 @@ class SampleSize(Esbae):
 
     def gfc_areas(self, save_figure=True):
 
+        self.config_dict['stats_params']['outdir'] = str(self.out_dir)
+        self.config_dict['stats_params']['start'] = self.start
+        self.config_dict['stats_params']['end'] = self.end
+        self.config_dict['stats_params']['tree_cover'] = self.tree_cover
+        self.config_dict['stats_params']['mmu'] = self.mmu
+        self.config_dict['stats_params']['area_dict'] = self.area_dict
+
+        # update conf file with set parameters before running
+        config.update_config_file(self.config_file, self.config_dict)
+
         # from hectare to pixel size
         self.area_dict, self.loss_df, self.fig_ann_deforest = get_area_statistics(
             self.aoi, self.start, self.end, self.tree_cover, self.mmu
@@ -82,19 +92,14 @@ class SampleSize(Esbae):
                 Path(self.out_dir).joinpath('annual_deforestation.png')
             )
 
-        self.config_dict['stats_params']['outdir'] = str(self.out_dir)
-        self.config_dict['stats_params']['start'] = self.start
-        self.config_dict['stats_params']['end'] = self.end
-        self.config_dict['stats_params']['tree_cover'] = self.tree_cover
-        self.config_dict['stats_params']['mmu'] = self.mmu
-        self.config_dict['stats_params']['area_dict'] = self.area_dict
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config_dict, f)
-
     def minimum_sample_size(self, save_figure=True):
 
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config_dict, f)
+        # update conf
+        self.config_dict['stats_params']['target_error'] = self.target_error
+        self.config_dict['stats_params']['confidence'] = self.confidence
+
+        # update conf file with set parameters before running
+        config.update_config_file(self.config_file, self.config_dict)
 
         self.calculated, self.selected = determine_minimum_sample_size(
             self.area_dict, self.target_error/100, self.confidence/100,
@@ -116,13 +121,22 @@ class SampleSize(Esbae):
         # update conf
         self.config_dict['stats_params']['target_error'] = self.target_error
         self.config_dict['stats_params']['confidence'] = self.confidence
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config_dict, f)
+
+        # update conf file with set parameters before running
+        config.update_config_file(self.config_file, self.config_dict)
 
     def simulated_sampling_error(self, save_figure=True):
 
         # we need to get the AOI right with the CRS
         aoi = py_helpers.read_any_aoi_to_single_row_gdf(self.aoi, incrs=self.aoi_crs)
+
+        self.config_dict['stats_params']['spacings'] = self.spacings
+        self.config_dict['stats_params']['scales'] = self.scales
+        self.config_dict['stats_params']['random_seed'] = self.random_seed
+        self.config_dict['stats_params']['runs'] = self.runs
+
+        # update conf file with set parameters before running
+        config.update_config_file(self.config_file, self.config_dict)
 
         self.simulated = gfc_sampling_simulation(
             aoi, self.start, self.end, self.area_dict, self.tree_cover, self.mmu,
@@ -136,13 +150,6 @@ class SampleSize(Esbae):
             self.fig_simulation.savefig(
                 (Path(self.out_dir).joinpath('simulated_sample_size.png'))
             )
-
-        self.config_dict['stats_params']['spacings'] = self.spacings
-        self.config_dict['stats_params']['scales'] = self.scales
-        self.config_dict['stats_params']['random_seed'] = self.random_seed
-        self.config_dict['stats_params']['runs'] = self.runs
-        with open(self.config_file, 'w') as f:
-            json.dump(self.config_dict, f)
 
 
 def _plot_loss(loss_df, start, end):
@@ -190,7 +197,7 @@ def _plot_loss(loss_df, start, end):
 def get_area_statistics(aoi, start, end, tree_cover=20, mmu=70):
 
     logger.info(
-        'Extracting areas of forest and deforestation from Hansen\'s Global Forest Change '
+        'Extracting areas of forest and tree cover loss from Hansen\'s Global Forest Change '
         'product. This may take a moment...'
     )
     if not isinstance(aoi, ee.FeatureCollection):
@@ -199,7 +206,7 @@ def get_area_statistics(aoi, start, end, tree_cover=20, mmu=70):
         aoi = geemap.geopandas_to_ee(aoi)
 
     # load hansen image
-    hansen = ee.Image("UMD/hansen/global_forest_change_2021_v1_9")
+    hansen = ee.Image('UMD/hansen/global_forest_change_2022_v1_10')
     # apply tree cover threshhold
     forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
 
@@ -265,7 +272,7 @@ def get_area_statistics(aoi, start, end, tree_cover=20, mmu=70):
         return [year, np.round(loss_area.getInfo()['lossyear'] / 1000000, 2)]
 
     gfc_args = []
-    for year in range(2001, 2022, 1):
+    for year in range(2001, 2023, 1):
         gfc_args.append([aoi, year])
 
     results = py_helpers.run_in_parallel(yearly_loss, gfc_args, 15)
@@ -554,7 +561,7 @@ def gfc_sampling_simulation(
     seeds = list(np.round(np.multiply(seeds, 100), 0))
 
     # load hansen image
-    hansen = ee.Image("UMD/hansen/global_forest_change_2021_v1_9")
+    hansen = ee.Image("UMD/hansen/global_forest_change_2022_v1_10")
     # apply tree cover threshhold
     forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
 
@@ -564,7 +571,7 @@ def gfc_sampling_simulation(
     forest_mask = forest_mask.updateMask(mmu_mask)
 
     # get lossyear
-    loss = ee.Image('UMD/hansen/global_forest_change_2021_v1_9').select('lossyear').unmask(0)
+    loss = ee.Image('UMD/hansen/global_forest_change_2022_v1_10').select('lossyear').unmask(0)
 
     # get the mask right (weird decimal values in mask)
     loss = loss \

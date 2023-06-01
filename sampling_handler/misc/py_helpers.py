@@ -215,7 +215,11 @@ def gdf_to_geojson(gdf, outfile, convert_dates=False):
         geojson.dump(gdf.to_json(), outfile)
 
 
-def geojson_to_gdf(infile, convert_dates=False, cols=False):
+def convert_to_datetime(date):
+    return pd.to_datetime(date, format='%Y%m%d')
+
+
+def geojson_to_gdf(infile, convert_dates=False, cols=False, crs='epsg:4326'):
 
     # this is how we load
     with open(infile, 'r') as outfile:
@@ -225,6 +229,8 @@ def geojson_to_gdf(infile, convert_dates=False, cols=False):
 
     # convert plain list of dates into a pandas datetime index
     if convert_dates:
+        #results = py_helpers.run_in_parallel(convert_date, gdf['dates'].tolist())
+
         gdf['dates'] = gdf.dates.apply(
             lambda dates: pd.DatetimeIndex(
                 [pd.to_datetime(date, format='%Y%m%d') for date in dates]
@@ -234,7 +240,7 @@ def geojson_to_gdf(infile, convert_dates=False, cols=False):
     if cols:
         return gdf[cols]
     else:
-        return gdf
+        return gdf.set_crs(crs)
 
 
 def aggregate_outfiles(directory, convert_dates=False):  # glob all files in the data augmentation output folder

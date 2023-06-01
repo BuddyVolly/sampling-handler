@@ -36,7 +36,7 @@ def sample_global_products(df, samples, config_dict):
     if config['gfc']:
         ## Global Forest Change (Hansen et al., 2013)
         dataset = dataset.addBands(
-            ee.Image('UMD/hansen/global_forest_change_2020_v1_8').select(
+            ee.Image('UMD/hansen/global_forest_change_2022_v1_10').select(
                 ['treecover2000', 'loss', 'lossyear', 'gain'],
                 ['gfc_tc00', 'gfc_loss', 'gfc_lossyear', 'gfc_gain'],
             )
