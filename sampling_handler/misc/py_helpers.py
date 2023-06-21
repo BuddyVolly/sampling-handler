@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import shlex
 import time
@@ -9,7 +10,6 @@ from pathlib import Path
 
 import ee
 import geemap
-import geojson
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
@@ -212,7 +212,7 @@ def gdf_to_geojson(gdf, outfile, convert_dates=False):
 
     # this is how we dump
     with open(outfile, 'w') as outfile:
-        geojson.dump(gdf.to_json(), outfile)
+        json.dump(gdf.to_json(), outfile)
 
 
 def convert_to_datetime(date):
@@ -224,7 +224,7 @@ def geojson_to_gdf(infile, convert_dates=False, cols=False, crs='epsg:4326'):
     # this is how we load
     with open(infile, 'r') as outfile:
         gdf = gpd.GeoDataFrame.from_features(
-            geojson.loads(geojson.load(outfile))
+            json.loads(json.load(outfile))
         )
 
     # convert plain list of dates into a pandas datetime index

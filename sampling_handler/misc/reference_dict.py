@@ -55,7 +55,7 @@ REFERENCE_DICT = {
             'l5': {'type': bool},
             'l4': {'type': bool},
             'brdf': {'type': bool},
-            'bands': {'type': (str,list), 'list_type': str, 'choices': [
+            'bands': {'type': (str, list), 'list_type': str, 'choices': [
                 'blue', 'green', 'red', 'nir', 'swir1', 'swir2', 'ndfi', 'ndmi', 'ndvi',
                 'brightness', 'greenness', 'wetness'
             ]},
@@ -65,7 +65,9 @@ REFERENCE_DICT = {
         'bounds_reduce': {'type': bool},
         'ee_workers': {'type': int, 'choices': range(1, 129)},
         'max_points_per_chunk': {'type': int, 'choices': range(1, 1000001)},
-        'grid_size_levels': {'type': (float, list), 'list_type': float, 'choices': {'min': 0, 'max': 10}},
+        'grid_size_levels': {
+            'type': (int, float, list), 'list_type': float, 'choices': {'min': 0, 'max': 10}
+        },
         'outdir': {'type': str}
     },
     'da_params': {
@@ -98,11 +100,11 @@ REFERENCE_DICT = {
         },
         'ts_metrics': {
             'run': {'type': bool},
-            'bands': {'type': (str,list), 'list_type': str, 'choices': [
+            'bands': {'type': (str, list), 'list_type': str, 'choices': [
                 'blue', 'green', 'red', 'nir', 'swir1', 'swir2', 'ndfi', 'ndmi', 'ndvi',
                 'brightness', 'greenness', 'wetness'
             ]},
-            "metrics": {'type': (str,list), 'list_type': str, 'choices': [
+            "metrics": {'type': (str, list), 'list_type': str, 'choices': [
                 "mean", "stddev", "min", "max"]
             },
             "outlier_removal": {'type': bool},

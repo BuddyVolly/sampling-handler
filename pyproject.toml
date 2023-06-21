@@ -32,6 +32,7 @@ dependencies = [
     "geemap",
     "contextily",
     "matplotlib_scalebar",
+    "plotly",
     # data science and ML
     "numpy==1.22",
     "pandas",
@@ -42,6 +43,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "openpyxl",
+    "tensorflow",
     # time-series
     "nrt",
     "bfast @ git+https://github.com/12rambau/bfast"

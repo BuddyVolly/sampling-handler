@@ -84,11 +84,12 @@ class EnsembleClassification(Esbae):
 
         logger.info('Aggregating ')
 
+
 def get_binary_change(row, start_year, end_year, consider_tmf=True, gfc_gain=True):
 
     # extract change
     loss_year = np.nan_to_num(row.gfc_lossyear)
-    gfc_loss = 1 if int(start_year[2:]) < int(row.gfc_lossyear) < int(end_year[2:]) else 0
+    gfc_loss = 1 if int(start_year[2:]) < int(loss_year) < int(end_year[2:]) else 0
     gfc_gain = 1 if row.gfc_gain and gfc_gain else 0
     if consider_tmf:
         tmf_def = 1 if int(start_year) < row.tmf_defyear < int(end_year) else 0
