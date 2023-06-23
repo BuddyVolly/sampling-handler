@@ -43,7 +43,8 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "openpyxl",
-    "tensorflow",
+    "tensorflow==2.7.0",
+    "protobuf==3.19.6",
     # time-series
     "nrt",
     "bfast @ git+https://github.com/12rambau/bfast"

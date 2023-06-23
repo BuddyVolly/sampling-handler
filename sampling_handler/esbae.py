@@ -19,7 +19,7 @@ class Esbae:
         # TODO
         # Check if there are spaces
 
-        if bool(os.environ['SEPAL']):
+        if os.environ['USER'] == 'sepal-user':
             self.project_dir = str(Path.home().joinpath(f'module_results/esbae/{project_name}'))
         else:
             self.project_dir = str(Path.home().joinpath(f'{project_name}'))
