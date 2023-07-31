@@ -94,7 +94,9 @@ class KMeansSubSampling(Esbae):
         logger.info(f'{self.cols_to_cluster}')
         x_values = self.df[self.cols_to_cluster]
 
+        # prepare predictive variables
         logger.info('Imputing missing data')
+        x_values.replace([np.inf, -np.inf], np.nan, inplace=True)
         imp = SimpleImputer(strategy="mean")
         x_values = imp.fit_transform(x_values)
 
