@@ -1,46 +1,24 @@
-import warnings as _warnings
-_original_warn = None
-
-# We get LOOOOOOTS fo awful warnings from Imblearn
-# Only thing that work to silence the is the following code here
-# (as warnings does not captures warnings from underlying libs)
-
-
-def _warn(
-        message:str, category:str='', stacklevel:int=1, source:str=''
-): # need hints to work with pytorch
-    pass # In the future, we can implement filters here. For now, just mute everything.
-
-
-def please():
-    global _original_warn
-    _original_warn = _warnings.warn
-    _warnings.warn = _warn
-
-
-please()
-
 import logging
 import warnings
 from pathlib import Path
 from zipfile import ZipFile
 
+import contextily as cx
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-import shapely
 import seaborn as sns
+import shapely
 from matplotlib import pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
-import contextily as cx
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
 
-from .sfc import sfc_subsample
 from ..esbae import Esbae
 from ..misc import py_helpers
 from ..misc.settings import setup_logger
+from .sfc import sfc_subsample
 
 # Create a logger object
 logger = logging.getLogger(__name__)
@@ -61,7 +39,7 @@ class KMeansSubSampling(Esbae):
         )
 
         # here is where out files are stored
-        self.out_dir = str(Path(self.project_dir).joinpath('05a_Unsupervised_subsampling'))
+        self.out_dir = str(Path(self.project_dir).joinpath('05_Subsampling/KMeans_Unsupervised'))
         Path(self.out_dir).mkdir(parents=True, exist_ok=True)
         self.pid = self.config_dict['design_params']['pid']
 
@@ -82,22 +60,30 @@ class KMeansSubSampling(Esbae):
 
         # select columsn that are used by Kmeans
         esbae_cols = [
-            'gfc_tc00', 'mon_images',
+            # change algorithms
+            'mon_images',
             'bfast_magnitude', 'bfast_means',
             'cusum_confidence', 'cusum_magnitude',
+            'bs_slope_mean', 'bs_slope_sd', 'bs_slope_max', 'bs_slope_min',
+            'ewma_jrc_change', 'ewma_jrc_magnitude',
+            'mosum_jrc_change', 'mosum_jrc_magnitude',
+            'cusum_jrc_change', 'cusum_jrc_magnitude',
+            'ccdc_magnitude',
+
+            # spectral indices
             'ndfi_mean', 'ndfi_sd', 'ndfi_min', 'ndfi_max',
             'swir2_mean', 'swir2_sd', 'swir2_min', 'swir2_max',
             'swir1_mean', 'swir1_sd', 'swir1_min', 'swir1_max',
             'nir_mean', 'nir_sd', 'nir_min', 'nir_max',
             'red_mean', 'red_sd', 'red_min', 'red_max',
+            'green_mean', 'green_sd', 'green_min', 'green_max',
+            'blue_mean', 'blue_sd', 'blue_min', 'blue_max',
             'brightness_mean', 'brightness_sd', 'brightness_min', 'brightness_max',
             'wetness_mean', 'wetness_sd', 'wetness_min', 'wetness_max',
             'greenness_mean', 'greenness_sd', 'greenness_min', 'greenness_max',
-            'bs_slope_mean', 'bs_slope_sd', 'bs_slope_max', 'bs_slope_min',
-            'ewma_jrc_date', 'ewma_jrc_change', 'ewma_jrc_magnitude',
-            'mosum_jrc_change', 'mosum_jrc_magnitude',
-            'cusum_jrc_change', 'cusum_jrc_magnitude',
-            'ccdc_magnitude',
+
+            # global products
+            'gfc_tc00',
             'dw_class_mode', 'dw_tree_prob__max', 'dw_tree_prob__min',
             'dw_tree_prob__stdDev', 'dw_tree_prob_mean',
             'elevation', 'slope', 'aspect'
@@ -182,8 +168,9 @@ class KMeansSubSampling(Esbae):
                 ax=ax, markersize=markersize*2, facecolor='red'
             )
 
-        cx.add_basemap(ax, crs=self.df.crs.to_string(), source=basemap)
-        ax.add_artist(ScaleBar(py_helpers.get_scalebar_distance(self.df)))
+        if basemap:
+            cx.add_basemap(ax, crs=self.df.crs.to_string(), source=basemap)
+            ax.add_artist(ScaleBar(py_helpers.get_scalebar_distance(self.df)))
 
         if save_figure:
             fig.savefig(f'{self.out_dir}/clusters.png')

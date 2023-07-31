@@ -128,5 +128,15 @@
     "py_workers": 50,
     "ee_workers": 20,
     "outdir": null
+  },
+  "subsampling_params": {
+    "th": {
+      "percentile": 95,
+      "tree_cover": 0,
+      "tree_height": 0,
+      "max_points": false,
+      "random_state": 42
+    },
+    "outdir": null
   }
 }

@@ -1,14 +1,13 @@
-import numpy as np
 import dask_geopandas as dgpd
+import numpy as np
 
 
 def sfc_subsample(gdf, target_point_size, seed=None):
-    """Space-filling curve
+    """Space-filling curve.
 
     This function takes a GeoDataFrame with Point geometries,
     and will return a
     """
-
     # Check if all geometries are points
     is_only_points = all(geom.geom_type == "Point" for geom in gdf.geometry)
 

@@ -7,4 +7,5 @@ from .time_series.ts_extract import TimeSeriesExtraction
 from .dataset_augmentation.augment import DatasetAugmentation
 from .dataset_augmentation.augment import DatasetAugmentation as DataAugmentation  # backwards compatibility
 from .sampling.kmeans_subsampling import KMeansSubSampling
+from .sampling.threshold import ThresholdSubSampling
 from .ensemble.classification import EnsembleClassification

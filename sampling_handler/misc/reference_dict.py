@@ -158,5 +158,15 @@ REFERENCE_DICT = {
         'py_workers': {'type': int, 'choices': range(1, 10000)},
         'ee_workers': {'type': int, 'choices': range(1, 10000)},
         'outdir': {'type': str}
+    },
+    "subsampling_params": {
+        "th": {
+            "percentile": {'type': int, 'choices': range(1, 99)},
+            "tree_cover": {'type': int, 'choices': range(0, 100)},
+            "tree_height": {'type': int, 'choices': range(0, 100)},
+            "max_points":  {'type': (int, bool), 'choices': range(0, 9999999999999)},
+            "random_state": {'type': int, 'choices': range(0, 9999999999999)},
+        },
+        "outdir": {'type': str}
     }
 }

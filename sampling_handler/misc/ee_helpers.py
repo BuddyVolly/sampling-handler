@@ -116,7 +116,7 @@ def _ee_export_table(ee_fc, description, asset_id, sub_folder=None, wait_until_e
     for asset in ee.data.listAssets({"parent": asset_root})["assets"]:
         if asset["name"] == asset_id:
             logger.warning("Feature Collection asset already exists.")
-            return None, None
+            return 'exists', asset_id
 
     # create and start export task
     export_task = ee.batch.Export.table.toAsset(
