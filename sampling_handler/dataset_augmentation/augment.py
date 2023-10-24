@@ -235,6 +235,7 @@ def change_routine(gdf, config_dict, samples=None):
         py_gdf = py_thread.join()
         if not ee_thread:
             return py_gdf
+
     if ee_thread:
         ee_gdf = ee_thread.join()
         if not py_thread:
@@ -309,8 +310,10 @@ def run_change(config_dict, satellite, skip_batches=None):
 
     # consists of TimeSeries and satellite
     ts_dir = Path(config_dict['ts_params']['outdir']).joinpath(satellite)
+
     # get number of batches from TS extraction (i.e. every 25000)
     batches = np.unique([file.name.split('_')[0] for file in ts_dir.glob('*geojson')])
+
     # outdir
     outdir = Path(config_dict['da_params']['outdir']).joinpath(satellite)
     outdir.mkdir(parents=True, exist_ok=True)

@@ -1,14 +1,13 @@
 import json
 import logging
-import time
-from pathlib import Path
 from datetime import datetime as dt
+from pathlib import Path
 
 import ee
 from pyproj import Proj
 
-from .reference_dict import REFERENCE_DICT
 from ..misc.py_helpers import read_any_aoi_to_single_row_gdf, timer
+from .reference_dict import REFERENCE_DICT
 from .settings import setup_logger
 
 # Create a logger object

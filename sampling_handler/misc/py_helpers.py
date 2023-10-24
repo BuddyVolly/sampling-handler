@@ -106,14 +106,14 @@ def run_in_parallel(func, arg_list, workers, parallelization='threads'):
     return results
 
 
-def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None):
+def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None, pid='point_id'):
 
     # if it is already a feature collection
     if isinstance(gdf, ee.FeatureCollection):
         gdf = geemap.ee_to_geopandas(gdf)
 
     if not outdir:
-        outdir = Path.home().joinpath("module_results/e_sbae")
+        outdir = Path.home().joinpath("module_results/esbae")
 
     if not isinstance(outdir, Path):
         outdir = Path(outdir)
@@ -121,12 +121,15 @@ def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None):
     outdir.mkdir(parents=True, exist_ok=True)
     logger.debug(f'Saving outputs to {outdir}')
 
+    if gpkg:
+        gdf.to_file(outdir.joinpath(gpkg), driver="GPKG")
+
     if ceo_csv:
 
         gdf["LON"] = gdf["geometry"].x
         gdf["LAT"] = gdf["geometry"].y
         # sort columns for CEO output
-        gdf["PLOTID"] = gdf["point_id"]
+        gdf["PLOTID"] = gdf[pid]
         cols = gdf.columns.tolist()
         cols = [e for e in cols if e not in ("LON", "LAT", "PLOTID")]
         new_cols = ["PLOTID", "LAT", "LON"] + cols
@@ -135,9 +138,6 @@ def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None):
         gdf[["PLOTID", "LAT", "LON"]].to_csv(
             outdir.joinpath(ceo_csv), index=False
         )
-
-    if gpkg:
-        gdf.to_file(outdir.joinpath(gpkg), driver="GPKG")
 
 
 def split_dataframe(df, chunk_size=25000):

@@ -131,22 +131,49 @@ class ThresholdSubSampling(Esbae):
         # filter data
         self.training_df = df[bfast_filter | ccdc_filter | cusum_filter | ewma_filter | slope_filter | glb_products]
         logger.info(f'Number of initial training samples: {len(self.training_df)}')
+
+        # check if we have points (i.e bounds_reduce in NB 3 was false or true)
+        geometry_check = isinstance(
+            self.training_df.head(1).geometry.values[0],
+            shapely.geometry.polygon.Polygon
+        )
+
+        if geometry_check:
+            self.training_df['poly_geometry'] = self.training_df.geometry
+            self.training_df['geometry'] = self.training_df.geometry.centroid
+            self.training_df.set_crs('epsg:4326', inplace=True)
+
         # subsample by subselection
         if self.max_points:
 
-            # subsample selection with SFC
+        # subsample selection with SFC
             self.training_df = sfc_subsample(
                 gdf=self.training_df,
                 target_point_size=self.max_points,
                 seed=self.random_state
             )
-        logger.info(f'Number of final training samples: {len(self.training_df)}')
 
+        logger.info(f'Number of final training samples: {len(self.training_df)}')
         if save_as_ceo:
+            if geometry_check:
+                ceo_df = self.training_df.drop(['dates', 'ts', 'poly_geometry'], axis=1)
+            else:
+                ceo_df = self.training_df.drop(['dates', 'ts'], axis=1)
+
             logger.info(f'Saving final training samples to {self.out_dir}')
             py_helpers.save_gdf_locally(
-                self.training_df.drop(['dates', 'ts'], axis=1), self.out_dir, gpkg=f'training_samples.gpkg', ceo_csv='training_samples.csv'
+                ceo_df,
+                self.out_dir,
+                gpkg='training_samples.gpkg',
+                ceo_csv='training_samples.csv',
+                pid=self.pid
             )
+
+        # turn points back into plot polygons
+        if geometry_check:
+                self.training_df['geometry'] = self.training_df['poly_geometry']
+                self.training_df.drop('poly_geometry',  axis=1, inplace=True)
+                self.training_df.set_crs('epsg:4326', inplace=True)
 
         return self.training_df
 
@@ -161,8 +188,8 @@ class ThresholdSubSampling(Esbae):
                 self.training_df.head(1).geometry.values[0],
                 shapely.geometry.polygon.Polygon
         ):
-            self.training_df['geom'] = self.df.geometry
-            self.training_df['geometry'] = self.df.geometry.centroid
+
+            self.training_df['geometry'] = self.training_df.geometry.centroid
             self.training_df.set_crs('epsg:4326', inplace=True)
 
         fig, ax = plt.subplots(1, 1, figsize=(12, 12))
