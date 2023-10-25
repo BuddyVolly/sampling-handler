@@ -1,13 +1,13 @@
-import time
 import logging
+import time
 
 import ee
-import requests
 import pandas as pd
+import requests
 from retrying import retry
+
 from sampling_handler.misc import py_helpers
 from sampling_handler.misc.settings import setup_logger
-
 
 # Create a logger object
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def sample_global_products(df, samples, config_dict):
     points = samples.filter(
         ee.Filter.inList(point_id_name, df[point_id_name].tolist())
     )
-    cell = ee.FeatureCollection(points.geometry().convexHull())
+    cell = ee.FeatureCollection(points.geometry().convexHull(100).buffer(1000))
 
     # create an empty image to which we can add bands as needed
     dataset = ee.Image.constant(1).rename('to_be_removed')

@@ -8,7 +8,7 @@ import nox
 @nox.session(reuse_venv=True, name="ee-test-sepal")
 def ee_test_sepal(session):
     """Run all the test using the environment varialbe of the running machine."""
-    session.install("git+https://github.com/openforis/earthengine-api.git@v0.1.343#egg=earthengine-api&subdirectory=python")
+    session.install("git+https://github.com/openforis/earthengine-api.git@v0.1.374#egg=earthengine-api&subdirectory=python")
     session.install(".[test]")
     test_files = session.posargs or ["tests"]
     session.run("pytest", "--color=yes", "--cov", "--cov-report=html", *test_files)

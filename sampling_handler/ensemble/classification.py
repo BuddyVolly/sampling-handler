@@ -116,7 +116,12 @@ class EnsembleClassification(Esbae):
             except:
                 self.training_df = gpd.GeoDataFrame(self.training_df, geometry=self.training_df['geometry'].apply(wkt.loads), crs='epsg:4326')
 
-            self.merged_df = gpd.sjoin_nearest(self.augmented_df, self.training_df, how='left', max_distance=0.001)
+            self.merged_df = gpd.sjoin_nearest(
+                self.augmented_df,
+                self.training_df[[self.pid, self.binary_change_column, 'geometry']],
+                how='left',
+                max_distance=0.001
+            )
 
     def load_augmented_dataset(self):
 
@@ -283,7 +288,8 @@ class EnsembleClassification(Esbae):
                 x_train,
                 y_train,
                 n_repeats=25,
-                random_state=random_state
+                random_state=random_state,
+                n_jobs=-1
             )
             # turn permutation results into a dataframe
             perm = pd.DataFrame(columns=['AVG_Importance', 'STD_Importance'], index=[i for i in self.predictors])
