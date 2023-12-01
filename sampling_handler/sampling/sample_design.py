@@ -8,6 +8,7 @@ import logging
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import dask_geopandas as dgpd
 import contextily as cx
 from matplotlib import pyplot as plt
 from matplotlib_scalebar.scalebar import ScaleBar
@@ -297,11 +298,20 @@ def hexagonal_grid(
 
     # divide to grid and point df
     grid_gdf = gdf.drop(['sample_points'], axis=1).to_crs(outcrs)
+    grid_gdf['dggrid_id'] = grid_gdf['name']
+    grid_gdf.drop('name', axis=1, inplace=True)
     gdf['geometry'] = gdf['sample_points']
     point_gdf = gdf.drop(['sample_points'], axis=1).to_crs(outcrs)
 
     logging.debug('Remove points outside AOI...')
     point_gdf = point_gdf[point_gdf.geometry.within(aoi.iloc[0]['geometry'])]
+
+    # add hilbert distance
+    dgdf = dgpd.from_geopandas(point_gdf, npartitions=4)
+    point_gdf['dggrid_id'] = point_gdf['name']
+    point_gdf.drop('name', axis=1, inplace=True)
+    point_gdf["hilbertDistance"] = dgdf.geometry.hilbert_distance()
+    point_gdf = point_gdf.sort_values("hilbertDistance").reset_index()
 
     logging.debug(f'Sampling grid consists of {len(point_gdf)} points.')
     return grid_gdf.to_crs(outcrs), point_gdf.to_crs(outcrs)
@@ -322,10 +332,10 @@ def parallel_hexgrid(
 
     logger.info('Creating hexagonal grid...')
     if resolution < 12:
-        hexs, grids = hexagonal_grid(
+        hexs, centroids = hexagonal_grid(
             aoi, resolution, sampling_strategy, dggrid_proj, centroid_crs, outcrs
         )
-        return hexs, grids
+        return hexs, centroids
 
     # else we parallelize
     base_resolution = np.ceil(resolution / 2)
@@ -355,10 +365,15 @@ def parallel_hexgrid(
             samples.append(r[1])
 
     hexs = pd.concat(hexs)
-    hexs.drop_duplicates('name', inplace=True)
-
+    hexs.drop_duplicates('dggrid_id', inplace=True)
+    
     centroids = pd.concat(samples)
-    centroids.drop_duplicates('name', inplace=True)
+    centroids.drop_duplicates('dggrid_id', inplace=True)
+
+    # add hilbert distance
+    dgdf = dgpd.from_geopandas(centroids, npartitions=4)
+    centroids["hilbertDistance"] = dgdf.geometry.hilbert_distance()
+    centroids = centroids.sort_values("hilbertDistance").reset_index()
 
     # add point id
     logger.info("Adding a unique point ID...")

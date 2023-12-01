@@ -211,14 +211,15 @@ def get_area_statistics(aoi, start, end, tree_cover=20, mmu=70):
     forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
 
     # apply mmu
-    mmu_pixel = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_scale = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_pixel = np.floor((mmu_scale**2)/(30**2))
     mmu_mask = forest_mask.gt(0).connectedPixelCount(
         ee.Number(mmu_pixel).add(2)
     ).gte(ee.Number(mmu_pixel))
     forest_mask = forest_mask.updateMask(mmu_mask)
 
     # rescale the right way, if scale is different from original
-    scale = mmu_pixel
+    scale = mmu_scale
     if scale > 30:
         forest_mask = forest_mask.reduceResolution(**{
             "reducer": ee.Reducer.mean(),
@@ -566,7 +567,8 @@ def gfc_sampling_simulation(
     forest_mask = hansen.select('treecover2000').gt(tree_cover).rename('forest_area')
 
     # apply mmu
-    mmu_pixel = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_scale = int(np.floor(np.sqrt(mmu*10000)))
+    mmu_pixel = np.floor((mmu_scale**2)/(30**2))
     mmu_mask = forest_mask.gt(0).connectedPixelCount(ee.Number(mmu_pixel).add(2)).gte(ee.Number(mmu_pixel))
     forest_mask = forest_mask.updateMask(mmu_mask)
 
