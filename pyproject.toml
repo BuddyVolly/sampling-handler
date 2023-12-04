@@ -48,7 +48,7 @@ dependencies = [
     "tensorflow==2.15.0",
     # time-series
     "nrt",
-    "bfast @ git+https://github.com/12rambau/bfast"
+    "bfast @ https://github.com/dfguerrerom/bfast"
 ]
 
 [[project.authors]]
