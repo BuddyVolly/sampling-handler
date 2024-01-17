@@ -290,7 +290,7 @@ def plot_stratification(df, prob_column, stratum_column, bins=10, figsize=(15, 1
 
     # move together
     fig.tight_layout()
-
+    return ax
 
 def interactive_map(df, popup='chg_prob', tooltips=None):
 

@@ -25,13 +25,16 @@ dependencies = [
     # geospatial libs
     "earthengine-api",
     "ee_preproc @ git+https://github.com/BuddyVolly/ee-preproc",
+    "geemap",
     "geojson",
-    "xarray",
+    "geoparquet",
     "geopandas",
     "dask-geopandas",
-    "geoparquet",
-    "geemap",
+    "xarray",
+    # mapping and plotting
     "contextily",
+    "matplotlib",
+    "seaborn",
     "matplotlib_scalebar",
     "plotly",
     # data science and ML
@@ -42,8 +45,6 @@ dependencies = [
     "scikit-learn",
     "scikit-optimize",
     "imbalanced-learn",
-    "matplotlib",
-    "seaborn",
     "openpyxl",
     "tensorflow==2.15.0",
     # time-series
