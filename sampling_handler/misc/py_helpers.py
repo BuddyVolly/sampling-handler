@@ -110,7 +110,7 @@ def save_gdf_locally(gdf, outdir=None, ceo_csv=None, gpkg=None, pid='point_id'):
 
     # if it is already a feature collection
     if isinstance(gdf, ee.FeatureCollection):
-        gdf = geemap.ee_to_geopandas(gdf)
+        gdf = geemap.ee_to_gdf(gdf)
 
     if not outdir:
         outdir = Path.home().joinpath("module_results/esbae")
@@ -161,7 +161,7 @@ def read_any_aoi_to_single_row_gdf(aoi, incrs=None, outcrs='epsg:4326'):
 
     if isinstance(aoi, ee.FeatureCollection):
         logger.debug("Turning ee FC into a GeoDataFrame")
-        aoi = geemap.ee_to_geopandas(aoi).set_crs("epsg:4326", inplace=True)
+        aoi = geemap.ee_to_gdf(aoi).set_crs("epsg:4326", inplace=True)
 
     if isinstance(aoi, (str, Path)):
         aoi = gpd.read_file(aoi)

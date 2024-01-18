@@ -25,7 +25,7 @@ dependencies = [
     # geospatial libs
     "earthengine-api",
     "ee_preproc @ git+https://github.com/BuddyVolly/ee-preproc",
-    "geemap",
+    "geemap>=0.30.4",
     "geojson",
     "geoparquet",
     "geopandas",
