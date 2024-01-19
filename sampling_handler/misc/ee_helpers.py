@@ -93,9 +93,9 @@ def set_id(feature):
 def _ee_export_table(ee_fc, description, asset_id, sub_folder=None, wait_until_end=True):
 
     # get users asset root
-    #asset_root = ee.data.getAssetRoots()[0]["id"]
-    asset_root = '/'.join(ee.data.getAssetRoots()[0]['id'].split('/')[:2])
-    print(asset_root)
+    asset_root = ee.data.getAssetRoots()[0]["id"]
+    #asset_root = '/'.join(ee.data.getAssetRoots()[0]['id'].split('/')[:2])
+    #print(asset_root)
     # if there is any subfolder,create it
     if sub_folder:
         try:
