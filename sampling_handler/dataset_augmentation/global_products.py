@@ -59,25 +59,25 @@ def sample_global_products(df, samples, config_dict):
 
         # get main bands from TMF
         tmf_sub = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/TransitionMap_Subtypes')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/TransitionMap_Subtypes')
             .filterBounds(cell)
             .mosaic()
             .rename('tmf_sub')
         )
         tmf_main = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/TransitionMap_MainClasses')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/TransitionMap_MainClasses')
             .filterBounds(cell)
             .mosaic()
             .rename('tmf_main')
         )
         tmf_deg = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/DegradationYear')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/DegradationYear')
             .filterBounds(cell)
             .mosaic()
             .rename('tmf_degyear')
         )
         tmf_def = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/DeforestationYear')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/DeforestationYear')
             .filterBounds(cell)
             .mosaic()
             .rename('tmf_defyear')
@@ -96,7 +96,7 @@ def sample_global_products(df, samples, config_dict):
         end_year = int(end_monitor[0:4])
 
         tmf_years = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/AnnualChanges')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/AnnualChanges')
             .filterBounds(cell)
             .mosaic()
         )
@@ -116,7 +116,7 @@ def sample_global_products(df, samples, config_dict):
 
         # get years of TMF product
         tmf_all_years = (
-            ee.ImageCollection('projects/JRC/TMF/v1_2020/AnnualChanges')
+            ee.ImageCollection('projects/JRC/TMF/v1_2022/AnnualChanges')
             .mosaic()
             .select(bands, new_bands)
         )
