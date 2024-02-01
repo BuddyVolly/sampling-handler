@@ -1,9 +1,11 @@
 import time
 import logging
+import json 
 
 import ee
 import geemap
 import geopandas as gpd
+import requests 
 
 from ..misc.py_helpers import split_dataframe
 from ..misc.settings import setup_logger
@@ -90,12 +92,30 @@ def set_id(feature):
     )
 
 
+def get_legacy_root():
+
+    # get base url
+    base_url = 'https://earthengine.googleapis.com/v1/projects/earthengine-legacy:listAssets'
+
+    # get access token
+    with open('/home/sepal-user/.config/earthengine/credentials') as f:
+        access_token = json.loads(f.read())['access_token']
+
+    # get the response
+    with requests.Session() as session:
+        headers={'Authorization': f'Bearer {access_token}'}
+        request = session.request("get", base_url)
+        response = session.get(request.url, headers=headers, stream=True)
+
+    return response.json()['assets'][0]['name']
+
+
 def _ee_export_table(ee_fc, description, asset_id, sub_folder=None, wait_until_end=True):
 
     # get users asset root
-    asset_root = ee.data.getAssetRoots()[0]["id"]
-    #asset_root = '/'.join(ee.data.getAssetRoots()[0]['id'].split('/')[:2])
-    #print(asset_root)
+    #asset_root = ee.data.getAssetRoots()[0]["id"]
+    asset_root = get_legacy_root()
+    
     # if there is any subfolder,create it
     if sub_folder:
         try:
@@ -158,7 +178,8 @@ def check_finished_tasks(tasks, wait=30):
 def delete_sub_folder(sub_folder):
 
     # get users asset root
-    asset_root = ee.data.getAssetRoots()[0]["id"]
+    #asset_root = ee.data.getAssetRoots()[0]["id"]
+    asset_root = get_legacy_root()
     asset_folder = f"{asset_root}/{sub_folder}"
 
     logger.info(f"Removing assets within asset folder {asset_folder}")
@@ -173,7 +194,8 @@ def delete_sub_folder(sub_folder):
 
 def cleanup_tmp_esbae():
 
-    asset_root = ee.data.getAssetRoots()[0]["id"]
+    #asset_root = ee.data.getAssetRoots()[0]["id"]
+    asset_root = get_legacy_root()
     for a in ee.data.listAssets({"parent": f"{asset_root}"})["assets"]:
         if a["name"].split('/')[-1][:9] == "tmp_esbae":
             delete_sub_folder(a["name"].split('/')[-1])
@@ -182,7 +204,8 @@ def cleanup_tmp_esbae():
 def merge_fcs(sub_folder):
 
     # get users asset root
-    asset_root = ee.data.getAssetRoots()[0]["id"]
+    #asset_root = ee.data.getAssetRoots()[0]["id"]
+    asset_root = get_legacy_root()
 
     logger.info(f"Merging the Feature Collections within {sub_folder}")
     child_assets = ee.data.listAssets({"parent": f"{asset_root}/{sub_folder}"})["assets"]
