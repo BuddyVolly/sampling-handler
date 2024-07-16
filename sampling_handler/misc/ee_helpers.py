@@ -103,10 +103,13 @@ def get_legacy_root():
 
     # get the response
     with requests.Session() as session:
-        headers={'Authorization': f'Bearer {access_token}'}
+        headers={
+            'Authorization': f'Bearer {access_token}', 
+            'x-goog-user-project': ee.data.getProjectConfig()['name'].split('/')[1]
+        }
         request = session.request("get", base_url)
         response = session.get(request.url, headers=headers, stream=True)
-
+        
     return response.json()['assets'][0]['name']
 
 
